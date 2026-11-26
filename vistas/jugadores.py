@@ -322,9 +322,7 @@ def _render_rendimiento_partido(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, ti
         </div>
         """, unsafe_allow_html=True)
 
-    # ── Mapa de Remates + Detalle de Tiros ──
-    col_map, col_det = st.columns([1.3, 1.1])
-
+    # ── Preparación común de remates del jugador/partido ──
     col_jug_t = next((c for c in ["jugador", "player", "player_name"] if c in df_tiros.columns), None) if not df_tiros.empty else None
     t_sub = df_tiros[df_tiros[col_jug_t] == jug_sel].copy() if col_jug_t else pd.DataFrame()
     if not t_sub.empty and "match_id" in t_sub.columns:
@@ -333,13 +331,48 @@ def _render_rendimiento_partido(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, ti
         else:
             t_sub = t_sub[t_sub["match_id"].isin(sub_jug["match_id"].unique())].copy()
 
+    if not t_sub.empty:
+        res_col = "resultado" if "resultado" in t_sub.columns else None
+        xg_col = next((c for c in ["xg", "expectedGoals", "xG"] if c in t_sub.columns), None)
+        t_sub["_xg_val"] = pd.to_numeric(t_sub[xg_col], errors="coerce").fillna(0.08) if xg_col else 0.10
+
+        def _cat_tiro(r):
+            val = str(r.get(res_col, "")).lower() if res_col else ""
+            if val == "goal" or r.get("es_gol", 0) == 1:
+                return "Gol"
+            if val in ("save", "post", "on_target"):
+                return "Al arco / Palo"
+            return "Afuera / Bloqueado"
+
+        t_sub["Desenlace"] = t_sub.apply(_cat_tiro, axis=1)
+        t_sub["_zona_es"] = (
+            t_sub["zona_arco"].astype(str).str.lower().map(TRADUCCION_ZONA).fillna("-")
+            if "zona_arco" in t_sub.columns
+            else "-"
+        )
+        t_sub["_cuerpo_es"] = (
+            t_sub["parte_cuerpo"].astype(str).str.lower().map(TRADUCCION_CUERPO).fillna("-")
+            if "parte_cuerpo" in t_sub.columns
+            else "-"
+        )
+        t_sub["_sit_es"] = (
+            t_sub["situacion"].astype(str).str.lower().map(TRADUCCION_SITUACION).fillna("-")
+            if "situacion" in t_sub.columns
+            else "-"
+        )
+
+    # ── Mapa de Remates + Detalle de Tiros ──
+    col_map, col_det = st.columns([1.3, 1.1])
+
     with col_map:
         st.markdown('<div class="section-header">🎯 Mapa de Remates</div>', unsafe_allow_html=True)
-        col_x = next((c for c in ["x", "coord_x", "pos_x"] if c in t_sub.columns), None)
-        col_y = next((c for c in ["y", "coord_y", "pos_y"] if c in t_sub.columns), None)
+        col_x = next((c for c in ["x", "coord_x", "pos_x", "shot_x", "X"] if c in t_sub.columns), None) if not t_sub.empty else None
+        col_y = next((c for c in ["y", "coord_y", "pos_y", "shot_y", "Y"] if c in t_sub.columns), None) if not t_sub.empty else None
 
-        if t_sub.empty or not col_x or not col_y:
-            st.info("Sin remates con coordenadas registrados para esta selección.")
+        if t_sub.empty:
+            st.info("Sin remates registrados para esta selección.")
+        elif not col_x or not col_y:
+            st.info("La base de tiros actual no incluye coordenadas (x, y) en cancha; podés ver el detalle completo de cada remate en la tabla de la derecha.")
         else:
             tx = pd.to_numeric(t_sub[col_x], errors="coerce")
             ty = pd.to_numeric(t_sub[col_y], errors="coerce")
@@ -347,35 +380,6 @@ def _render_rendimiento_partido(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, ti
                 tx = 100.0 - tx
             t_sub["_px"] = tx.clip(50, 100)
             t_sub["_py"] = ty.clip(0, 100)
-
-            res_col = "resultado" if "resultado" in t_sub.columns else None
-            xg_col = next((c for c in ["xg", "expectedGoals", "xG"] if c in t_sub.columns), None)
-            t_sub["_xg_val"] = pd.to_numeric(t_sub[xg_col], errors="coerce").fillna(0.08) if xg_col else 0.10
-
-            def _cat_tiro(r):
-                val = str(r.get(res_col, "")).lower() if res_col else ""
-                if val == "goal" or r.get("es_gol", 0) == 1:
-                    return "Gol"
-                if val in ("save", "post", "on_target"):
-                    return "Al arco / Palo"
-                return "Afuera / Bloqueado"
-
-            t_sub["Desenlace"] = t_sub.apply(_cat_tiro, axis=1)
-            t_sub["_zona_es"] = (
-                t_sub["zona_arco"].astype(str).str.lower().map(TRADUCCION_ZONA).fillna("-")
-                if "zona_arco" in t_sub.columns
-                else "-"
-            )
-            t_sub["_cuerpo_es"] = (
-                t_sub["parte_cuerpo"].astype(str).str.lower().map(TRADUCCION_CUERPO).fillna("-")
-                if "parte_cuerpo" in t_sub.columns
-                else "-"
-            )
-            t_sub["_sit_es"] = (
-                t_sub["situacion"].astype(str).str.lower().map(TRADUCCION_SITUACION).fillna("-")
-                if "situacion" in t_sub.columns
-                else "-"
-            )
 
             colores = {"Gol": "#cfb45e", "Al arco / Palo": RED, "Afuera / Bloqueado": "#8b8b95"}
             fig_shot = go.Figure()
@@ -428,6 +432,7 @@ def _render_rendimiento_partido(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, ti
                 "xGOT": pd.to_numeric(t_sub["xgot"], errors="coerce").fillna(0.0) if "xgot" in t_sub.columns else 0.0,
                 "Zona": t_sub["_zona_es"],
                 "Perfil": t_sub["_cuerpo_es"],
+                "Situación": t_sub["_sit_es"],
             })
             st.dataframe(
                 df_t_show.style.format({"xG": "{:.2f}", "xGOT": "{:.2f}"}),
