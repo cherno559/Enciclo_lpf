@@ -191,26 +191,7 @@ def _agregar_jugadores(df_jug: pd.DataFrame) -> pd.DataFrame:
     return res
 
 
-def _dibujar_media_cancha(fig: go.Figure):
-    line_color = "rgba(255, 255, 255, 0.25)"
-    shapes = [
-        # Media cancha (x: 50 a 100, y: 0 a 100)
-        dict(type="rect", x0=50, y0=0, x1=100, y1=100, line=dict(color=line_color, width=1.5), fillcolor="#141419", layer="below"),
-        # Área grande
-        dict(type="rect", x0=83, y0=21.1, x1=100, y1=78.9, line=dict(color=line_color, width=1.5), layer="below"),
-        # Área chica
-        dict(type="rect", x0=94.2, y0=36.8, x1=100, y1=63.2, line=dict(color=line_color, width=1.5), layer="below"),
-        # Arco
-        dict(type="rect", x0=100, y0=45.2, x1=101.6, y1=54.8, line=dict(color="#ffffff", width=2), fillcolor="rgba(255,255,255,0.18)", layer="below"),
-        # Punto penal
-        dict(type="circle", x0=88.2, y0=49.5, x1=88.8, y1=50.5, line=dict(color=line_color, width=1.5), fillcolor=line_color, layer="below"),
-        # Semicírculo central
-        dict(type="path", path="M 50 38 A 9.15 12 0 0 1 50 62", line=dict(color=line_color, width=1.5), layer="below"),
-    ]
-    fig.update_layout(shapes=shapes)
-
-
-def _render_rendimiento_partido(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, tiene_avanzadas: bool):
+def _render_rendimiento_partido(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, tiene_avanzadas: bool, tiene_fisico: bool):
     d_act = df_jug[df_jug["minutesPlayed"].fillna(0) > 0].copy()
     if d_act.empty:
         st.info("No hay partidos con minutos registrados para el período seleccionado.")
@@ -260,11 +241,12 @@ def _render_rendimiento_partido(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, ti
         if "posicion_desc" in df_p.columns and not df_p["posicion_desc"].dropna().empty
         else "Jugador"
     )
-    subtitulo_partido = (
-        f"vs {df_p.iloc[0]['rival']} ({df_p.iloc[0]['fecha']})"
-        if mid_sel is not None and len(df_p) > 0
-        else f"{len(df_p)} partidos disputados"
-    )
+    if mid_sel is not None and len(df_p) > 0:
+        r0 = df_p.iloc[0]
+        cond_txt = "Titular" if not bool(r0.get("suplente", True)) else "Ingresó desde el banco"
+        subtitulo_partido = f"vs {r0['rival']} ({r0['fecha']}) · {cond_txt}"
+    else:
+        subtitulo_partido = f"Acumulado en {len(df_p)} partidos disputados"
 
     st.markdown(f"""
     <div style="display:flex; align-items:center; gap:14px; margin:6px 0 14px 0;">
@@ -278,7 +260,7 @@ def _render_rendimiento_partido(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, ti
     </div>
     """, unsafe_allow_html=True)
 
-    # ── KPIs de Rendimiento del Partido ──
+    # ── KPIs Principales ──
     mins_tot = int(round(df_p["minutesPlayed"].sum()))
     nota_prom = df_p["rating"].mean() if "rating" in df_p.columns and df_p["rating"].notna().any() else np.nan
     nota_txt = f"{nota_prom:.2f}" if pd.notna(nota_prom) else "-"
@@ -286,43 +268,142 @@ def _render_rendimiento_partido(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, ti
     pases_tot = int(df_p["totalPass"].fillna(0).sum()) if "totalPass" in df_p.columns else 0
     pct_pase = (pases_ok / pases_tot * 100) if pases_tot > 0 else 0.0
 
+    def _s_int(col):
+        return int(round(df_p[col].fillna(0).sum())) if col in df_p.columns else 0
+
+    def _s_flt(col):
+        return float(df_p[col].fillna(0).sum()) if col in df_p.columns else 0.0
+
+    tiros_tot = (
+        _s_int("totalShots")
+        if ("totalShots" in df_p.columns and df_p["totalShots"].notna().any())
+        else (_s_int("onTargetScoringAttempt") + _s_int("shotOffTarget") + _s_int("blockedScoringAttempt"))
+    )
+
     if "arquero" in pos_jugador.lower():
-        ataj = int(df_p["saves"].fillna(0).sum()) if "saves" in df_p.columns else 0
-        g_rec = int(df_p["goalsConceded"].fillna(0).sum()) if "goalsConceded" in df_p.columns else 0
-        g_evit = float(df_p["goalsPrevented"].fillna(0).sum()) if "goalsPrevented" in df_p.columns else 0.0
+        ataj = _s_int("saves")
+        g_rec = _s_int("goalsConceded")
+        g_evit = _s_flt("goalsPrevented")
         evit_sub = f"Goles evitados: {g_evit:+.2f}" if tiene_avanzadas else "Valla del equipo"
         st.markdown(f"""
         <div class="kpi-grid">
             <div class="kpi-card"><div class="kpi-label">Nota SofaScore</div><div class="kpi-value" style="color:#cfb45e">{nota_txt}</div><div class="kpi-sub">{mins_tot}' jugados</div></div>
-            <div class="kpi-card"><div class="kpi-label">Atajadas</div><div class="kpi-value">{ataj}</div><div class="kpi-sub">Remates contenidos</div></div>
+            <div class="kpi-card"><div class="kpi-label">Atajadas</div><div class="kpi-value">{ataj}</div><div class="kpi-sub">Dentro del área: {_s_int('savedShotsFromInsideTheBox')}</div></div>
             <div class="kpi-card"><div class="kpi-label">Goles Recibidos</div><div class="kpi-value">{g_rec}</div><div class="kpi-sub">{evit_sub}</div></div>
             <div class="kpi-card"><div class="kpi-label">Precisión de Pases</div><div class="kpi-value">{pct_pase:.0f}%</div><div class="kpi-sub">{pases_ok}/{pases_tot} completados</div></div>
         </div>
         """, unsafe_allow_html=True)
     else:
-        goles = int(df_p["goals"].fillna(0).sum()) if "goals" in df_p.columns else 0
-        asist = int(df_p["goalAssist"].fillna(0).sum()) if "goalAssist" in df_p.columns else 0
-        xg = float(df_p["expectedGoals"].fillna(0).sum()) if "expectedGoals" in df_p.columns else 0.0
-        xa = float(df_p["expectedAssists"].fillna(0).sum()) if "expectedAssists" in df_p.columns else 0.0
-        p_clave = int(df_p["keyPass"].fillna(0).sum()) if "keyPass" in df_p.columns else 0
-        quites = int(df_p["wonTackle"].fillna(0).sum()) if "wonTackle" in df_p.columns else 0
-        interc = int(df_p["interceptionWon"].fillna(0).sum()) if "interceptionWon" in df_p.columns else 0
-        recup = int(df_p["ballRecovery"].fillna(0).sum()) if "ballRecovery" in df_p.columns else 0
-        duelos_g = int(df_p["duelWon"].fillna(0).sum()) if "duelWon" in df_p.columns else 0
+        goles = _s_int("goals")
+        asist = _s_int("goalAssist")
+        xg = _s_flt("expectedGoals")
+        xa = _s_flt("expectedAssists")
+        p_clave = _s_int("keyPass")
+        recup = _s_int("ballRecovery")
+        quites = _s_int("wonTackle")
+        interc = _s_int("interceptionWon")
+        duelos_g = _s_int("duelWon")
 
-        xg_txt = f"xG generado: {xg:.2f}" if tiene_avanzadas else f"Tiros al arco: {int(df_p['onTargetScoringAttempt'].fillna(0).sum())}"
-        xa_txt = f"xA: {xa:.2f} · Pases clave: {p_clave}" if tiene_avanzadas else f"Pases clave: {p_clave}"
+        xg_txt = f"xG: {xg:.2f}" if tiene_avanzadas else f"Tiros: {tiros_tot} ({_s_int('onTargetScoringAttempt')} al arco)"
+        xa_txt = f"xA: {xa:.2f} · P. clave: {p_clave}" if tiene_avanzadas else f"Pases clave: {p_clave}"
 
         st.markdown(f"""
         <div class="kpi-grid">
             <div class="kpi-card"><div class="kpi-label">Nota SofaScore</div><div class="kpi-value" style="color:#cfb45e">{nota_txt}</div><div class="kpi-sub">{mins_tot}' en cancha</div></div>
             <div class="kpi-card"><div class="kpi-label">Goles / Asistencias</div><div class="kpi-value">{goles} <span style="color:#8b8b95; font-size:1.4rem;">/</span> {asist}</div><div class="kpi-sub">{xg_txt} · {xa_txt}</div></div>
-            <div class="kpi-card"><div class="kpi-label">Distribución</div><div class="kpi-value">{pct_pase:.0f}%</div><div class="kpi-sub">{pases_ok}/{pases_tot} pases · {int(df_p['wonContest'].fillna(0).sum())} regates</div></div>
+            <div class="kpi-card"><div class="kpi-label">Distribución</div><div class="kpi-value">{pct_pase:.0f}%</div><div class="kpi-sub">{pases_ok}/{pases_tot} pases · {_s_int('wonContest')} regates</div></div>
             <div class="kpi-card"><div class="kpi-label">Defensa y Duelos</div><div class="kpi-value">{recup} <span style="font-size:1.1rem; color:#8b8b95;">recup.</span></div><div class="kpi-sub">{quites} quites · {interc} interc. · {duelos_g} duelos</div></div>
         </div>
         """, unsafe_allow_html=True)
 
-    # ── Preparación común de remates del jugador/partido ──
+    # ── Todas las Estadísticas del Partido por Bloque ──
+    st.markdown('<div class="section-header">📊 Estadísticas Completas</div>', unsafe_allow_html=True)
+
+    def _tabla_bloque(filas: list[tuple[str, str]]):
+        df_b = pd.DataFrame(filas, columns=["Métrica", "Valor"])
+        st.dataframe(
+            df_b.style.set_properties(subset=["Valor"], **{"font-weight": "bold", "color": "#ececf0"}),
+            hide_index=True,
+            width="stretch",
+            height=(len(df_b) * 35) + 38,
+        )
+
+    duelos_g = _s_int("duelWon")
+    duelos_tot = duelos_g + _s_int("duelLost")
+    duelos_pct = (duelos_g / duelos_tot * 100) if duelos_tot > 0 else 0.0
+
+    aereos_g = _s_int("aerialWon")
+    aereos_tot = aereos_g + _s_int("aerialLost")
+    aereos_pct = (aereos_g / aereos_tot * 100) if aereos_tot > 0 else 0.0
+
+    reg_ok = _s_int("wonContest")
+    reg_tot = _s_int("totalContest")
+    reg_pct = (reg_ok / reg_tot * 100) if reg_tot > 0 else 0.0
+
+    b1, b2, b3 = st.columns(3)
+
+    with b1:
+        st.caption("⚔️ ATAQUE Y DEFINICIÓN")
+        filas_atq = [
+            ("Goles", str(_s_int("goals"))),
+            ("Remates totales", str(tiros_tot)),
+            ("Remates al arco", str(_s_int("onTargetScoringAttempt"))),
+            ("Remates desviados", str(_s_int("shotOffTarget"))),
+            ("Remates bloqueados", str(_s_int("blockedScoringAttempt"))),
+            ("Ocasiones claras falladas", str(_s_int("bigChanceMissed"))),
+        ]
+        if tiene_avanzadas:
+            filas_atq.insert(1, ("Goles esperados (xG)", f"{_s_flt('expectedGoals'):.2f}"))
+            filas_atq.insert(2, ("xG al arco (xGOT)", f"{_s_flt('expectedGoalsOnTarget'):.2f}"))
+        if "arquero" in pos_jugador.lower():
+            filas_atq = [
+                ("Atajadas totales", str(_s_int("saves"))),
+                ("Atajadas dentro del área", str(_s_int("savedShotsFromInsideTheBox"))),
+                ("Goles recibidos", str(_s_int("goalsConceded"))),
+                ("Penales atajados", str(_s_int("penaltySave"))),
+                ("Salidas de arquero ok", str(_s_int("accurateKeeperSweeper"))),
+            ]
+            if tiene_avanzadas:
+                filas_atq.insert(3, ("Goles evitados", f"{_s_flt('goalsPrevented'):+.2f}"))
+        _tabla_bloque(filas_atq)
+
+    with b2:
+        st.caption("🎯 CREACIÓN, PASES Y CONDUCCIÓN")
+        filas_cre = [
+            ("Asistencias", str(_s_int("goalAssist"))),
+            ("Ocasiones claras creadas", str(_s_int("bigChanceCreated"))),
+            ("Pases clave", str(_s_int("keyPass"))),
+            ("Pases precisos", f"{pases_ok}/{pases_tot} ({pct_pase:.1f}%)"),
+            ("Regates completados", f"{reg_ok}/{reg_tot} ({reg_pct:.1f}%)"),
+            ("Posesiones perdidas", str(_s_int("possessionLostCtrl"))),
+        ]
+        if tiene_avanzadas:
+            filas_cre.insert(1, ("Asistencias esperadas (xA)", f"{_s_flt('expectedAssists'):.2f}"))
+        if "progressiveBallCarriesCount" in df_p.columns and df_p["progressiveBallCarriesCount"].notna().any():
+            filas_cre.append(("Conducciones progresivas", str(_s_int("progressiveBallCarriesCount"))))
+        if "totalProgressiveBallCarriesDistance" in df_p.columns and df_p["totalProgressiveBallCarriesDistance"].notna().any():
+            filas_cre.append(("Distancia progresiva", f"{_s_flt('totalProgressiveBallCarriesDistance'):.1f} m"))
+        _tabla_bloque(filas_cre)
+
+    with b3:
+        st.caption("🛡️ DEFENSA, DUELOS Y FÍSICO")
+        filas_def = [
+            ("Recuperaciones", str(_s_int("ballRecovery"))),
+            ("Quites ganados", str(_s_int("wonTackle"))),
+            ("Intercepciones", str(_s_int("interceptionWon"))),
+            ("Despejes", str(_s_int("totalClearance"))),
+            ("Duelos en el suelo", f"{duelos_g}/{duelos_tot} ({duelos_pct:.1f}%)"),
+            ("Duelos aéreos", f"{aereos_g}/{aereos_tot} ({aereos_pct:.1f}%)"),
+        ]
+        if tiene_fisico:
+            filas_def.append(("Distancia recorrida", f"{_s_flt('kilometersCovered'):.2f} km"))
+            if "topSpeed" in df_p.columns and df_p["topSpeed"].notna().any():
+                filas_def.append(("Velocidad máxima", f"{float(df_p['topSpeed'].max()):.1f} km/h"))
+            if "numberOfSprints" in df_p.columns and df_p["numberOfSprints"].notna().any():
+                filas_def.append(("Sprints", str(_s_int("numberOfSprints"))))
+        _tabla_bloque(filas_def)
+
+    # ── Desglose de Remates ──
     col_jug_t = next((c for c in ["jugador", "player", "player_name"] if c in df_tiros.columns), None) if not df_tiros.empty else None
     t_sub = df_tiros[df_tiros[col_jug_t] == jug_sel].copy() if col_jug_t else pd.DataFrame()
     if not t_sub.empty and "match_id" in t_sub.columns:
@@ -331,18 +412,27 @@ def _render_rendimiento_partido(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, ti
         else:
             t_sub = t_sub[t_sub["match_id"].isin(sub_jug["match_id"].unique())].copy()
 
-    if not t_sub.empty:
+    st.markdown('<div class="section-header">🎯 Desglose de Remates</div>', unsafe_allow_html=True)
+    if t_sub.empty:
+        st.caption("Sin remates individuales registrados para esta selección.")
+    else:
         res_col = "resultado" if "resultado" in t_sub.columns else None
         xg_col = next((c for c in ["xg", "expectedGoals", "xG"] if c in t_sub.columns), None)
-        t_sub["_xg_val"] = pd.to_numeric(t_sub[xg_col], errors="coerce").fillna(0.08) if xg_col else 0.10
+        t_sub["_xg_val"] = pd.to_numeric(t_sub[xg_col], errors="coerce").fillna(0.0) if xg_col else 0.0
+        t_sub["_xgot_val"] = pd.to_numeric(t_sub["xgot"], errors="coerce").fillna(0.0) if "xgot" in t_sub.columns else 0.0
+        t_sub["_gol"] = (
+            (t_sub["es_gol"].fillna(0).astype(int) == 1)
+            if "es_gol" in t_sub.columns
+            else (t_sub[res_col].astype(str).str.lower() == "goal" if res_col else False)
+        )
 
         def _cat_tiro(r):
             val = str(r.get(res_col, "")).lower() if res_col else ""
-            if val == "goal" or r.get("es_gol", 0) == 1:
-                return "Gol"
+            if r["_gol"] or val == "goal":
+                return "⚽ Gol"
             if val in ("save", "post", "on_target"):
-                return "Al arco / Palo"
-            return "Afuera / Bloqueado"
+                return "🧤 Al arco / Palo"
+            return "❌ Afuera / Bloqueado"
 
         t_sub["Desenlace"] = t_sub.apply(_cat_tiro, axis=1)
         t_sub["_zona_es"] = (
@@ -361,84 +451,67 @@ def _render_rendimiento_partido(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, ti
             else "-"
         )
 
-    # ── Mapa de Remates + Detalle de Tiros ──
-    col_map, col_det = st.columns([1.3, 1.1])
-
-    with col_map:
-        st.markdown('<div class="section-header">🎯 Mapa de Remates</div>', unsafe_allow_html=True)
-        col_x = next((c for c in ["x", "coord_x", "pos_x", "shot_x", "X"] if c in t_sub.columns), None) if not t_sub.empty else None
-        col_y = next((c for c in ["y", "coord_y", "pos_y", "shot_y", "Y"] if c in t_sub.columns), None) if not t_sub.empty else None
-
-        if t_sub.empty:
-            st.info("Sin remates registrados para esta selección.")
-        elif not col_x or not col_y:
-            st.info("La base de tiros actual no incluye coordenadas (x, y) en cancha; podés ver el detalle completo de cada remate en la tabla de la derecha.")
-        else:
-            tx = pd.to_numeric(t_sub[col_x], errors="coerce")
-            ty = pd.to_numeric(t_sub[col_y], errors="coerce")
-            if tx.median() < 50:
-                tx = 100.0 - tx
-            t_sub["_px"] = tx.clip(50, 100)
-            t_sub["_py"] = ty.clip(0, 100)
-
-            colores = {"Gol": "#cfb45e", "Al arco / Palo": RED, "Afuera / Bloqueado": "#8b8b95"}
-            fig_shot = go.Figure()
-            _dibujar_media_cancha(fig_shot)
-
-            for cat in ["Afuera / Bloqueado", "Al arco / Palo", "Gol"]:
-                grp = t_sub[t_sub["Desenlace"] == cat]
-                if grp.empty:
-                    continue
-                fig_shot.add_trace(
-                    go.Scatter(
-                        x=grp["_px"],
-                        y=grp["_py"],
-                        mode="markers",
-                        name=f"{cat} ({len(grp)})",
-                        marker=dict(
-                            size=np.clip(grp["_xg_val"] * 40 + 11, 11, 32),
-                            color=colores.get(cat, "#ffffff"),
-                            line=dict(color="#0a0a0c", width=1.4),
-                            symbol="star" if cat == "Gol" else "circle",
-                        ),
-                        customdata=np.stack([grp["_xg_val"].round(2), grp["_zona_es"], grp["_cuerpo_es"], grp["_sit_es"]], axis=-1),
-                        hovertemplate=(
-                            "<b>%{fullData.name}</b><br>"
-                            "xG: %{customdata[0]}<br>"
-                            "Destino: %{customdata[1]}<br>"
-                            "Perfil: %{customdata[2]} · %{customdata[3]}<extra></extra>"
-                        ),
-                    )
-                )
-
-            fig_shot.update_layout(
-                **PLOT_LAYOUT,
-                height=390,
-                xaxis=dict(range=[49, 102], visible=False, fixedrange=True),
-                yaxis=dict(range=[-2, 102], visible=False, scaleanchor="x", scaleratio=0.68, fixedrange=True),
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+        # Unir rival/fecha si está viendo todos los partidos
+        if mid_sel is None and "match_id" in t_sub.columns:
+            mapa_part = sub_jug.set_index("match_id")[["fecha", "rival"]].to_dict("index")
+            t_sub["Partido"] = t_sub["match_id"].map(
+                lambda m: f"{mapa_part[m]['fecha']} vs {mapa_part[m]['rival']}" if m in mapa_part else "-"
             )
-            st.plotly_chart(fig_shot, width="stretch")
 
-    with col_det:
-        st.markdown('<div class="section-header">📋 Detalle de Remates</div>', unsafe_allow_html=True)
-        if t_sub.empty:
-            st.caption("No hay remates registrados en este recorte.")
-        else:
-            df_t_show = pd.DataFrame({
-                "Min": pd.to_numeric(t_sub["minuto"], errors="coerce").fillna(0).astype(int) if "minuto" in t_sub.columns else "-",
-                "Resultado": t_sub["Desenlace"],
-                "xG": t_sub["_xg_val"],
-                "xGOT": pd.to_numeric(t_sub["xgot"], errors="coerce").fillna(0.0) if "xgot" in t_sub.columns else 0.0,
-                "Zona": t_sub["_zona_es"],
-                "Perfil": t_sub["_cuerpo_es"],
-                "Situación": t_sub["_sit_es"],
-            })
+        col_det, col_res = st.columns([1.5, 1.0])
+
+        with col_det:
+            st.caption("REGISTRO TIRO POR TIRO")
+            data_tiros = {}
+            if "Partido" in t_sub.columns:
+                data_tiros["Partido"] = t_sub["Partido"]
+            if "minuto" in t_sub.columns:
+                data_tiros["Min'"] = pd.to_numeric(t_sub["minuto"], errors="coerce").fillna(0).astype(int)
+            data_tiros["Desenlace"] = t_sub["Desenlace"]
+            if tiene_avanzadas:
+                data_tiros["xG"] = t_sub["_xg_val"]
+                data_tiros["xGOT"] = t_sub["_xgot_val"]
+            data_tiros["Destino"] = t_sub["_zona_es"]
+            data_tiros["Perfil"] = t_sub["_cuerpo_es"]
+            data_tiros["Situación"] = t_sub["_sit_es"]
+
+            df_t_show = pd.DataFrame(data_tiros)
+            fmt_t = {"xG": "{:.2f}", "xGOT": "{:.2f}"} if tiene_avanzadas else {}
             st.dataframe(
-                df_t_show.style.format({"xG": "{:.2f}", "xGOT": "{:.2f}"}),
+                df_t_show.style.format(fmt_t),
                 hide_index=True,
                 width="stretch",
-                height=390,
+                height=min(360, (len(df_t_show) * 35) + 42),
+            )
+
+        with col_res:
+            st.caption("RESUMEN POR DESTINO Y PERFIL")
+            df_z_res = (
+                t_sub.groupby("_zona_es", as_index=False)
+                .agg(Tiros=("Desenlace", "count"), Goles=("_gol", "sum"), xG=("_xg_val", "sum"))
+                .rename(columns={"_zona_es": "Destino"})
+                .sort_values("Tiros", ascending=False)
+            )
+            df_z_res["Goles"] = df_z_res["Goles"].astype(int)
+            cols_z = ["Destino", "Tiros", "Goles", "xG"] if tiene_avanzadas else ["Destino", "Tiros", "Goles"]
+            st.dataframe(
+                df_z_res[cols_z].style.format({"xG": "{:.2f}"} if tiene_avanzadas else {}),
+                hide_index=True,
+                width="stretch",
+            )
+
+            df_c_res = (
+                t_sub.groupby("_cuerpo_es", as_index=False)
+                .agg(Tiros=("Desenlace", "count"), Goles=("_gol", "sum"), xG=("_xg_val", "sum"))
+                .rename(columns={"_cuerpo_es": "Perfil"})
+                .sort_values("Tiros", ascending=False)
+            )
+            df_c_res["Goles"] = df_c_res["Goles"].astype(int)
+            cols_c = ["Perfil", "Tiros", "Goles", "xG"] if tiene_avanzadas else ["Perfil", "Tiros", "Goles"]
+            st.dataframe(
+                df_c_res[cols_c].style.format({"xG": "{:.2f}"} if tiene_avanzadas else {}),
+                hide_index=True,
+                width="stretch",
             )
 
 
@@ -798,10 +871,10 @@ def render_jugadores(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, periodo: str 
             )
 
     # =========================================================================
-    # VISTA 3: RENDIMIENTO POR PARTIDO Y MAPA DE TIROS
+    # VISTA 3: RENDIMIENTO POR PARTIDO (ESTADÍSTICAS COMPLETAS + REMATES)
     # =========================================================================
     elif sub_vista == "🎯 Rendimiento por Partido":
-        _render_rendimiento_partido(df_jug, df_tiros, tiene_avanzadas)
+        _render_rendimiento_partido(df_jug, df_tiros, tiene_avanzadas, tiene_fisico)
 
     # =========================================================================
     # VISTA 4: COMPARADOR

@@ -1,3 +1,4 @@
+from pathlib import Path
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -35,12 +36,27 @@ TRADUCCION_SITUACION = {
     "throw-in-set-piece": "Saque lateral",
 }
 
+POS_ABR = {
+    "Arquero": "ARQ",
+    "Defensor": "DEF",
+    "Mediocampista": "MED",
+    "Delantero": "DEL",
+}
+
 
 def _estilizar_ejes(fig, grid_x=False, grid_y=True):
     base = dict(zeroline=False, showline=True, linecolor=AXIS_LINE, tickfont=dict(size=11, color=AXIS_TXT))
     fig.update_xaxes(showgrid=grid_x, gridcolor=GRID, **base)
     fig.update_yaxes(showgrid=grid_y, gridcolor=GRID, **base)
     return fig
+
+
+@st.cache_data(show_spinner=False)
+def _cargar_tiros_fallback() -> pd.DataFrame:
+    ruta = Path(__file__).resolve().parents[1] / "datos" / "tiros.parquet"
+    if not ruta.exists():
+        return pd.DataFrame()
+    return pd.read_parquet(ruta)
 
 
 def _preparar_equipos(df_eq: pd.DataFrame) -> pd.DataFrame:
@@ -56,6 +72,131 @@ def _preparar_equipos(df_eq: pd.DataFrame) -> pd.DataFrame:
         columns={"equipo": "rival", **{c: f"{c}_contra" for c in disp}}
     )
     return df_eq.merge(rival, on=["match_id", "rival"], how="left")
+
+
+def _resumen_goles_asistencias(mid, equipo: str, df_jug: pd.DataFrame, df_tiros: pd.DataFrame) -> tuple[str, str]:
+    """Devuelve dos strings formateados: (goleadores_txt, asistidores_txt) para un equipo en un partido."""
+    jug_m = df_jug[(df_jug["match_id"] == mid) & (df_jug["equipo"] == equipo)].copy() if not df_jug.empty else pd.DataFrame()
+
+    # ── Goleadores ──
+    mins_por_jug: dict[str, list[str]] = {}
+    if not df_tiros.empty and "match_id" in df_tiros.columns:
+        t_m = df_tiros[df_tiros["match_id"] == mid].copy()
+        if "equipo" in t_m.columns:
+            t_m = t_m[t_m["equipo"] == equipo]
+        col_j_t = next((c for c in ["jugador", "player", "player_name"] if c in t_m.columns), None)
+        if col_j_t and not t_m.empty:
+            es_gol = (
+                (t_m["es_gol"].fillna(0).astype(int) == 1)
+                if "es_gol" in t_m.columns
+                else (t_m["resultado"].astype(str).str.lower() == "goal" if "resultado" in t_m.columns else pd.Series(False, index=t_m.index))
+            )
+            goles_t = t_m[es_gol].copy()
+            if not goles_t.empty:
+                if "minuto" in goles_t.columns:
+                    goles_t["_min_num"] = pd.to_numeric(goles_t["minuto"], errors="coerce")
+                    goles_t = goles_t.sort_values("_min_num")
+                for _, r in goles_t.iterrows():
+                    nom = str(r[col_j_t])
+                    m_txt = f"{int(r['_min_num'])}'" if pd.notna(r.get("_min_num")) else ""
+                    mins_por_jug.setdefault(nom, []).append(m_txt)
+
+    goleadores_lista = []
+    vistos = set()
+    for nom, lista_m in mins_por_jug.items():
+        vistos.add(nom)
+        mins_limpios = [m for m in lista_m if m]
+        if mins_limpios:
+            goleadores_lista.append(f"{nom} ({', '.join(mins_limpios)})")
+        elif len(lista_m) > 1:
+            goleadores_lista.append(f"{nom} (x{len(lista_m)})")
+        else:
+            goleadores_lista.append(nom)
+
+    if not jug_m.empty and "goals" in jug_m.columns:
+        g_df = jug_m[jug_m["goals"].fillna(0) > 0].sort_values("goals", ascending=False)
+        for _, r in g_df.iterrows():
+            nom = str(r["jugador"])
+            if nom in vistos:
+                continue
+            cant = int(round(r["goals"]))
+            goleadores_lista.append(f"{nom} (x{cant})" if cant > 1 else nom)
+
+    # ── Asistidores ──
+    asist_lista = []
+    if not jug_m.empty and "goalAssist" in jug_m.columns:
+        a_df = jug_m[jug_m["goalAssist"].fillna(0) > 0].sort_values(["goalAssist", "rating"], ascending=[False, False])
+        for _, r in a_df.iterrows():
+            nom = str(r["jugador"])
+            cant = int(round(r["goalAssist"]))
+            asist_lista.append(f"{nom} (x{cant})" if cant > 1 else nom)
+
+    goles_txt = " · ".join(goleadores_lista)
+    asist_txt = " · ".join(asist_lista)
+    return goles_txt, asist_txt
+
+
+def _render_plantel_partido(mid, equipo: str, df_jug: pd.DataFrame, tiene_xg: bool):
+    sub = df_jug[(df_jug["match_id"] == mid) & (df_jug["equipo"] == equipo)].copy()
+    sub = sub[sub["minutesPlayed"].fillna(0) > 0].copy()
+
+    form_txt = ""
+    if "formacion" in sub.columns and sub["formacion"].dropna().any():
+        form_txt = f" · Esquema {sub['formacion'].dropna().iloc[0]}"
+
+    st.markdown(f"""
+    <div style="display:flex; align-items:center; gap:10px; margin:12px 0 8px 0;">
+        {img_escudo_html(equipo, 28)}
+        <div style="font-family:'Oswald',sans-serif; font-size:1.15rem; color:#ffffff; letter-spacing:0.6px;">
+            {equipo.upper()}<span style="font-family:'Manrope',sans-serif; font-size:0.78rem; color:#8b8b95; font-weight:600;">{form_txt}</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if sub.empty:
+        st.caption("Sin datos individuales de jugadores para este partido.")
+        return
+
+    sub["_es_sup"] = sub["suplente"].fillna(True).astype(bool)
+    sub = sub.sort_values(["_es_sup", "minutesPlayed", "rating"], ascending=[True, False, False]).reset_index(drop=True)
+
+    pos_raw = sub["posicion_desc"].fillna("-") if "posicion_desc" in sub.columns else pd.Series("-", index=sub.index)
+    pos_corta = pos_raw.map(POS_ABR).fillna(pos_raw.astype(str).str[:3].str.upper())
+    rol_txt = np.where(sub["_es_sup"], "SUP · " + pos_corta, "TIT · " + pos_corta)
+
+    pases_ok = sub["accuratePass"].fillna(0).round(0).astype(int) if "accuratePass" in sub.columns else 0
+    pases_tot = sub["totalPass"].fillna(0).round(0).astype(int) if "totalPass" in sub.columns else 0
+
+    data = {
+        "Rol": rol_txt,
+        "Jugador": sub["jugador"],
+        "Min'": sub["minutesPlayed"].fillna(0).round(0).astype(int),
+        "Nota": sub["rating"],
+        "G": sub["goals"].fillna(0).round(0).astype(int) if "goals" in sub.columns else 0,
+        "A": sub["goalAssist"].fillna(0).round(0).astype(int) if "goalAssist" in sub.columns else 0,
+    }
+    if tiene_xg and "expectedGoals" in sub.columns:
+        data["xG"] = sub["expectedGoals"].fillna(0.0)
+
+    data["Pases"] = [f"{ok}/{tot}" for ok, tot in zip(pases_ok, pases_tot)]
+    data["Quites"] = sub["wonTackle"].fillna(0).round(0).astype(int) if "wonTackle" in sub.columns else 0
+    data["Recup."] = sub["ballRecovery"].fillna(0).round(0).astype(int) if "ballRecovery" in sub.columns else 0
+    data["Ataj."] = sub["saves"].fillna(0).round(0).astype(int) if "saves" in sub.columns else 0
+
+    df_pl = pd.DataFrame(data)
+    fmt = {"Nota": "{:.2f}"}
+    if "xG" in df_pl.columns:
+        fmt["xG"] = "{:.2f}"
+
+    st.dataframe(
+        df_pl.style.format(fmt, na_rep="-")
+        .set_properties(subset=["Jugador"], **{"font-weight": "bold"})
+        .set_properties(subset=["Nota"], **{"color": "#cfb45e", "font-weight": "bold"})
+        .set_properties(subset=["Rol"], **{"color": "#8b8b95", "font-size": "0.8rem"}),
+        hide_index=True,
+        use_container_width=True,
+        height=(len(df_pl) * 35) + 42,
+    )
 
 
 def render_equipos(df_eq: pd.DataFrame, df_jug: pd.DataFrame, df_tiros: pd.DataFrame, periodo: str = "Temporada Completa"):
@@ -333,7 +474,7 @@ def render_equipos(df_eq: pd.DataFrame, df_jug: pd.DataFrame, df_tiros: pd.DataF
 
             with col_tiros:
                 st.markdown('<div class="section-header">Origen de Remates y Goles</div>', unsafe_allow_html=True)
-                tiros_club = df_tiros[df_tiros["equipo"] == club].copy()
+                tiros_club = df_tiros[df_tiros["equipo"] == club].copy() if not df_tiros.empty else pd.DataFrame()
                 if not tiros_club.empty and "situacion" in tiros_club.columns:
                     tiros_club["Situación"] = (
                         tiros_club["situacion"].astype(str).str.lower()
@@ -520,6 +661,32 @@ def render_equipos(df_eq: pd.DataFrame, df_jug: pd.DataFrame, df_tiros: pd.DataF
                 and (float(row_l["expected_goals"]) + float(row_v["expected_goals"])) > 0
             )
 
+            tiros_ref = df_tiros if (df_tiros is not None and not df_tiros.empty) else _cargar_tiros_fallback()
+            goles_l_txt, asist_l_txt = _resumen_goles_asistencias(mid, nom_loc, df_jug, tiros_ref)
+            goles_v_txt, asist_v_txt = _resumen_goles_asistencias(mid, nom_vis, df_jug, tiros_ref)
+
+            bloque_inc_l = ""
+            if goles_l_txt:
+                bloque_inc_l += f'<div style="font-size:0.8rem; color:#ececf0; margin-top:4px;">⚽ {goles_l_txt}</div>'
+            if asist_l_txt:
+                bloque_inc_l += f'<div style="font-size:0.75rem; color:#8b8b95; margin-top:2px;">👟 Asist.: {asist_l_txt}</div>'
+
+            bloque_inc_v = ""
+            if goles_v_txt:
+                bloque_inc_v += f'<div style="font-size:0.8rem; color:#ececf0; margin-top:4px;">⚽ {goles_v_txt}</div>'
+            if asist_v_txt:
+                bloque_inc_v += f'<div style="font-size:0.75rem; color:#8b8b95; margin-top:2px;">👟 Asist.: {asist_v_txt}</div>'
+
+            fila_incidencias = ""
+            if bloque_inc_l or bloque_inc_v:
+                fila_incidencias = f"""
+                <div style="display:flex; justify-content:center; align-items:flex-start; gap:24px; margin-top:14px; padding-top:12px; border-top:1px solid #26262d;">
+                    <div style="flex:1; text-align:right;">{bloque_inc_l}</div>
+                    <div style="width:110px;"></div>
+                    <div style="flex:1; text-align:left;">{bloque_inc_v}</div>
+                </div>
+                """
+
             esc_l_partido = img_escudo_html(nom_loc, 52)
             esc_v_partido = img_escudo_html(nom_vis, 52)
 
@@ -541,6 +708,7 @@ def render_equipos(df_eq: pd.DataFrame, df_jug: pd.DataFrame, df_tiros: pd.DataF
                         <span style="font-family:'Bebas Neue', sans-serif; font-size:2rem; color:#fff;">{nom_vis}</span>
                     </div>
                 </div>
+                {fila_incidencias}
             </div>
             """, unsafe_allow_html=True)
 
@@ -585,3 +753,11 @@ def render_equipos(df_eq: pd.DataFrame, df_jug: pd.DataFrame, df_tiros: pd.DataF
                 use_container_width=True,
                 height=(len(df_p) * 35) + 42,
             )
+
+            # ── Estadísticas Individuales de Ambos Planteles ──
+            st.markdown('<div class="section-header">👥 Estadísticas de Ambos Planteles</div>', unsafe_allow_html=True)
+            col_pl_loc, col_pl_vis = st.columns(2)
+            with col_pl_loc:
+                _render_plantel_partido(mid, nom_loc, df_jug, tiene_xg_partido)
+            with col_pl_vis:
+                _render_plantel_partido(mid, nom_vis, df_jug, tiene_xg_partido)
