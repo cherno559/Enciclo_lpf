@@ -42,7 +42,7 @@ def _preparar_motor(df_eq: pd.DataFrame, df_jug: pd.DataFrame):
 
 
 def _resumen_tactico_xi(titulares: list[str] | None, plantel: pd.DataFrame) -> tuple[str, list[str]]:
-    """Calcula conteo ARQ-DEF-MED-DEL y alertas tácticas sin restringir esquemas."""
+    """Valida que la formación tenga equilibrio táctico real sin imponer un esquema fijo."""
     if not titulares or plantel.empty:
         return "", []
 
@@ -67,6 +67,13 @@ def _resumen_tactico_xi(titulares: list[str] | None, plantel: pd.DataFrame) -> t
 
     n = len(titulares)
     if n == 11 and conteo["ARQ"] == 1:
+        if conteo["DEF"] < 3 or conteo["DEF"] > 5:
+            alertas.append(f"{conteo['DEF']} defensores (permitido: 3 a 5)")
+        if conteo["MED"] < 2 or conteo["MED"] > 6:
+            alertas.append(f"{conteo['MED']} mediocampistas (permitido: 2 a 6)")
+        if conteo["DEL"] < 1 or conteo["DEL"] > 4:
+            alertas.append(f"{conteo['DEL']} delanteros (permitido: 1 a 4)")
+
         esquema = f"{conteo['DEF']}-{conteo['MED']}-{conteo['DEL']}"
         return f"Esquema {esquema}", alertas
 
@@ -279,6 +286,21 @@ def render_simulador(df_eq: pd.DataFrame, df_jug: pd.DataFrame, periodo: str = "
                 help="Define qué tan rápido reacciona el modelo a las últimas fechas respecto al historial del torneo.",
             )
             hl_map = {"Conservador": 8.0, "Calibrado (4 fechas)": 4.0, "Agresivo": 2.2}
+
+    # ── Validación de equilibrio táctico por líneas ──
+    errores_tacticos = []
+    if not plantel_loc.empty and titulares_loc is not None:
+        _, al_loc = _resumen_tactico_xi(titulares_loc, plantel_loc)
+        if al_loc:
+            errores_tacticos.append(f"**{eq_local}**: {', '.join(al_loc)}")
+    if not plantel_vis.empty and titulares_vis is not None:
+        _, al_vis = _resumen_tactico_xi(titulares_vis, plantel_vis)
+        if al_vis:
+            errores_tacticos.append(f"**{eq_vis}**: {', '.join(al_vis)}")
+
+    if errores_tacticos:
+        st.error(f"📋 Formación inválida para simular ({' · '.join(errores_tacticos)}).")
+        return
 
     df_largo, elos, tabla, rho = _preparar_motor(df_eq, df_jug)
     sim = simular_partido_completo(
