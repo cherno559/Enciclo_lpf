@@ -136,7 +136,7 @@ def _resumen_goles_asistencias(mid, equipo: str, df_jug: pd.DataFrame, df_tiros:
     return goles_txt, asist_txt
 
 
-def _render_plantel_partido(mid, equipo: str, df_jug: pd.DataFrame, tiene_xg: bool):
+def _render_plantel_partido(mid, equipo: str, df_jug: pd.DataFrame, tiene_xg: bool, expandir_todo: bool = False):
     sub = df_jug[(df_jug["match_id"] == mid) & (df_jug["equipo"] == equipo)].copy()
     sub = sub[sub["minutesPlayed"].fillna(0) > 0].copy()
 
@@ -145,10 +145,10 @@ def _render_plantel_partido(mid, equipo: str, df_jug: pd.DataFrame, tiene_xg: bo
         form_txt = f" · Esquema {sub['formacion'].dropna().iloc[0]}"
 
     st.markdown(f"""
-    <div style="display:flex; align-items:center; gap:10px; margin:12px 0 8px 0;">
-        {img_escudo_html(equipo, 28)}
-        <div style="font-family:'Oswald',sans-serif; font-size:1.15rem; color:#ffffff; letter-spacing:0.6px;">
-            {equipo.upper()}<span style="font-family:'Manrope',sans-serif; font-size:0.78rem; color:#8b8b95; font-weight:600;">{form_txt}</span>
+    <div style="display:flex; align-items:center; gap:10px; margin:14px 0 8px 0;">
+        {img_escudo_html(equipo, 30)}
+        <div style="font-family:'Oswald',sans-serif; font-size:1.25rem; color:#ffffff; letter-spacing:0.6px;">
+            {equipo.upper()}<span style="font-family:'Manrope',sans-serif; font-size:0.82rem; color:#8b8b95; font-weight:600;">{form_txt}</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -164,51 +164,78 @@ def _render_plantel_partido(mid, equipo: str, df_jug: pd.DataFrame, tiene_xg: bo
     pos_corta = pos_raw.map(POS_ABR).fillna(pos_raw.astype(str).str[:3].str.upper())
     rol_txt = np.where(sub["_es_sup"], "SUP · " + pos_corta, "TIT · " + pos_corta)
 
-    pases_ok = sub["accuratePass"].fillna(0).round(0).astype(int) if "accuratePass" in sub.columns else 0
-    pases_tot = sub["totalPass"].fillna(0).round(0).astype(int) if "totalPass" in sub.columns else 0
+    def _col_int(col):
+        return sub[col].fillna(0).round(0).astype(int) if col in sub.columns else pd.Series(0, index=sub.index)
+
+    def _col_flt(col):
+        return pd.to_numeric(sub[col], errors="coerce").fillna(0.0) if col in sub.columns else pd.Series(0.0, index=sub.index)
+
+    tiros_tot = (
+        sub["totalShots"].fillna(0).round(0).astype(int)
+        if ("totalShots" in sub.columns and sub["totalShots"].notna().any())
+        else (_col_int("onTargetScoringAttempt") + _col_int("shotOffTarget") + _col_int("blockedScoringAttempt"))
+    )
+
+    pases_ok = _col_int("accuratePass")
+    pases_tot = _col_int("totalPass")
+    reg_ok = _col_int("wonContest")
+    reg_tot = _col_int("totalContest")
+    duel_ok = _col_int("duelWon")
+    duel_tot = duel_ok + _col_int("duelLost")
+    aer_ok = _col_int("aerialWon")
+    aer_tot = aer_ok + _col_int("aerialLost")
+
+    nota_num = pd.to_numeric(sub["rating"], errors="coerce")
+    nota_str = nota_num.map(lambda x: f"{x:.2f}" if pd.notna(x) else "-")
 
     data = {
         "Rol": rol_txt,
         "Jugador": sub["jugador"],
-        "Min": sub["minutesPlayed"].fillna(0).round(0).astype(int),
-        "Nota": pd.to_numeric(sub["rating"], errors="coerce"),
-        "G": sub["goals"].fillna(0).round(0).astype(int) if "goals" in sub.columns else 0,
-        "A": sub["goalAssist"].fillna(0).round(0).astype(int) if "goalAssist" in sub.columns else 0,
+        "Min'": _col_int("minutesPlayed"),
+        "Nota": nota_str,
+        "Goles": _col_int("goals"),
+        "Asist.": _col_int("goalAssist"),
     }
-    if tiene_xg and "expectedGoals" in sub.columns:
-        data["xG"] = pd.to_numeric(sub["expectedGoals"], errors="coerce").fillna(0.0)
+    if tiene_xg:
+        data["xG"] = _col_flt("expectedGoals")
+        data["xGOT"] = _col_flt("expectedGoalsOnTarget")
+        data["xA"] = _col_flt("expectedAssists")
 
+    data["Tiros"] = tiros_tot
+    data["Al Arco"] = _col_int("onTargetScoringAttempt")
+    data["Oc. Fall."] = _col_int("bigChanceMissed")
+    data["P. Clave"] = _col_int("keyPass")
+    data["Oc. Cread."] = _col_int("bigChanceCreated")
     data["Pases"] = [f"{ok}/{tot}" for ok, tot in zip(pases_ok, pases_tot)]
-    data["Qui"] = sub["wonTackle"].fillna(0).round(0).astype(int) if "wonTackle" in sub.columns else 0
-    data["Rec"] = sub["ballRecovery"].fillna(0).round(0).astype(int) if "ballRecovery" in sub.columns else 0
-    data["Atj"] = sub["saves"].fillna(0).round(0).astype(int) if "saves" in sub.columns else 0
+    data["Regates"] = [f"{ok}/{tot}" for ok, tot in zip(reg_ok, reg_tot)]
+    data["Quites"] = _col_int("wonTackle")
+    data["Intercep."] = _col_int("interceptionWon")
+    data["Recup."] = _col_int("ballRecovery")
+    data["Despejes"] = _col_int("totalClearance")
+    data["Duelos"] = [f"{ok}/{tot}" for ok, tot in zip(duel_ok, duel_tot)]
+    data["Aéreos"] = [f"{ok}/{tot}" for ok, tot in zip(aer_ok, aer_tot)]
+    data["Pérdidas"] = _col_int("possessionLostCtrl")
+    data["Atajadas"] = _col_int("saves")
+
+    if "kilometersCovered" in sub.columns and sub["kilometersCovered"].fillna(0).sum() > 0:
+        data["Km"] = _col_flt("kilometersCovered")
 
     df_pl = pd.DataFrame(data)
-    fmt = {"Nota": lambda x: f"{x:.2f}" if pd.notna(x) else "-"}
-    if "xG" in df_pl.columns:
-        fmt["xG"] = "{:.2f}"
+    fmt = {}
+    for c_dec in ["xG", "xGOT", "xA", "Km"]:
+        if c_dec in df_pl.columns:
+            fmt[c_dec] = "{:.2f}"
+
+    alto_tabla = (len(df_pl) * 35) + 42 if expandir_todo else min(460, (len(df_pl) * 35) + 42)
 
     st.dataframe(
         df_pl.style.format(fmt)
         .set_properties(subset=["Jugador"], **{"font-weight": "bold"})
         .set_properties(subset=["Nota"], **{"color": "#cfb45e", "font-weight": "bold"})
-        .set_properties(subset=["Rol"], **{"color": "#8b8b95", "font-size": "0.78rem"}),
-        column_config={
-            "Rol": st.column_config.TextColumn("Rol", width="small"),
-            "Jugador": st.column_config.TextColumn("Jugador", width="medium"),
-            "Min": st.column_config.NumberColumn("Min'", width="small"),
-            "Nota": st.column_config.TextColumn("Nota", width="small"),
-            "G": st.column_config.NumberColumn("G", width="small"),
-            "A": st.column_config.NumberColumn("A", width="small"),
-            "xG": st.column_config.NumberColumn("xG", width="small"),
-            "Pases": st.column_config.TextColumn("Pases", width="small"),
-            "Qui": st.column_config.NumberColumn("Quites", width="small"),
-            "Rec": st.column_config.NumberColumn("Recup.", width="small"),
-            "Atj": st.column_config.NumberColumn("Ataj.", width="small"),
-        },
+        .set_properties(subset=["Rol"], **{"color": "#8b8b95", "font-size": "0.8rem"}),
         hide_index=True,
-        use_container_width=True,
-        height=(len(df_pl) * 35) + 42,
+        width="stretch",
+        height=alto_tabla,
     )
 
 
@@ -315,7 +342,7 @@ def render_equipos(df_eq: pd.DataFrame, df_jug: pd.DataFrame, df_tiros: pd.DataF
             .set_properties(subset=["PTS"], **{"background-color": "#261217", "color": "#ffffff", "font-weight": "bold"}),
             column_config={"Escudo": config_columna_escudo("")},
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
             height=(len(resumen_tbl) * 35) + 42,
         )
 
@@ -342,7 +369,7 @@ def render_equipos(df_eq: pd.DataFrame, df_jug: pd.DataFrame, df_tiros: pd.DataF
         _estilizar_ejes(fig_exp, grid_x=True, grid_y=True)
         if eje_y in ["xGA", "GC"]:
             fig_exp.update_yaxes(autorange="reversed")
-        st.plotly_chart(fig_exp, use_container_width=True)
+        st.plotly_chart(fig_exp, width="stretch")
 
     # =========================================================================
     # TAB 2: FICHA DE CLUB
@@ -460,7 +487,7 @@ def render_equipos(df_eq: pd.DataFrame, df_jug: pd.DataFrame, df_tiros: pd.DataF
             categoryorder="array",
             categoryarray=d_club["Etiqueta_Partido"].tolist(),
         )
-        st.plotly_chart(fig_evo, use_container_width=True)
+        st.plotly_chart(fig_evo, width="stretch")
 
         # ── Esquemas Tácticos (+ Origen de Remates solo en Clausura) ──
         jug_club = df_jug[(df_jug["equipo"] == club) & (df_jug["formacion"].notna())]
@@ -479,8 +506,8 @@ def render_equipos(df_eq: pd.DataFrame, df_jug: pd.DataFrame, df_tiros: pd.DataF
                     res_form["Efec %"] = (res_form["PTS"] / (res_form["PJ"] * 3) * 100).round(1)
                     res_form = res_form.rename(columns={"formacion": "Esquema", "GF_pj": "GF/pj", "GC_pj": "GC/pj", "xG_pj": "xG/pj", "xGA_pj": "xGA/pj"})
                     st.dataframe(
-                        res_form.style.format({"Efec %": "{:.1f}%", "GF/pj": "{:.2f}", "GC/pj": "{:.2f}", "xG/pj": "{:.2f}", "xGA_pj": "{:.2f}"}),
-                        hide_index=True, use_container_width=True,
+                        res_form.style.format({"Efec %": "{:.1f}%", "GF/pj": "{:.2f}", "GC/pj": "{:.2f}", "xG/pj": "{:.2f}", "xGA/pj": "{:.2f}"}),
+                        hide_index=True, width="stretch",
                     )
                 else:
                     st.info("Sin datos de formación disponibles.")
@@ -499,7 +526,7 @@ def render_equipos(df_eq: pd.DataFrame, df_jug: pd.DataFrame, df_tiros: pd.DataF
                         .sort_values("Remates", ascending=False)
                     )
                     res_sit["Goles"] = res_sit["Goles"].astype(int)
-                    st.dataframe(res_sit.style.format({"xG": "{:.2f}", "xGOT": "{:.2f}"}), hide_index=True, use_container_width=True)
+                    st.dataframe(res_sit.style.format({"xG": "{:.2f}", "xGOT": "{:.2f}"}), hide_index=True, width="stretch")
                 else:
                     st.info("Sin datos de remates individuales.")
         else:
@@ -516,7 +543,7 @@ def render_equipos(df_eq: pd.DataFrame, df_jug: pd.DataFrame, df_tiros: pd.DataF
                 res_form = res_form.rename(columns={"formacion": "Esquema", "GF_pj": "GF/pj", "GC_pj": "GC/pj"})
                 st.dataframe(
                     res_form.style.format({"Efec %": "{:.1f}%", "GF/pj": "{:.2f}", "GC/pj": "{:.2f}"}),
-                    hide_index=True, use_container_width=True,
+                    hide_index=True, width="stretch",
                 )
             else:
                 st.info("Sin datos de formación disponibles.")
@@ -547,7 +574,7 @@ def render_equipos(df_eq: pd.DataFrame, df_jug: pd.DataFrame, df_tiros: pd.DataF
             tabla_hist_show.style.format(fmt_hist),
             column_config={"Escudo": config_columna_escudo("")},
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
         )
 
     # =========================================================================
@@ -610,7 +637,7 @@ def render_equipos(df_eq: pd.DataFrame, df_jug: pd.DataFrame, df_tiros: pd.DataF
             st.dataframe(
                 df_comp.style.format({eq: "{:.2f}" for eq in seleccionados}).set_properties(subset=["Métrica"], **{"font-weight": "bold"}),
                 hide_index=True,
-                use_container_width=True,
+                width="stretch",
                 height=(len(df_comp) * 35) + 42,
             )
 
@@ -626,7 +653,7 @@ def render_equipos(df_eq: pd.DataFrame, df_jug: pd.DataFrame, df_tiros: pd.DataF
                 fig_comp.add_trace(go.Bar(name=eq, x=df_graf["Métrica"], y=df_graf[eq], marker_color=PALETTE[idx % len(PALETTE)]))
             fig_comp.update_layout(**PLOT_LAYOUT, barmode="group", height=380, legend=dict(orientation="h", y=1.12, x=0))
             _estilizar_ejes(fig_comp)
-            st.plotly_chart(fig_comp, use_container_width=True)
+            st.plotly_chart(fig_comp, width="stretch")
 
     # =========================================================================
     # TAB 4: BUSCADOR DE PARTIDOS
@@ -758,14 +785,16 @@ def render_equipos(df_eq: pd.DataFrame, df_jug: pd.DataFrame, df_tiros: pd.DataF
                 df_p.style.set_properties(subset=["Estadística"], **{"color": "#8b8b95", "font-weight": "600"})
                 .set_properties(subset=[nom_loc, nom_vis], **{"font-weight": "bold"}),
                 hide_index=True,
-                use_container_width=True,
+                width="stretch",
                 height=(len(df_p) * 35) + 42,
             )
 
             # ── Estadísticas Individuales de Ambos Planteles ──
             st.markdown('<div class="section-header">👥 Estadísticas de Ambos Planteles</div>', unsafe_allow_html=True)
-            col_pl_loc, col_pl_vis = st.columns(2)
-            with col_pl_loc:
-                _render_plantel_partido(mid, nom_loc, df_jug, tiene_xg_partido)
-            with col_pl_vis:
-                _render_plantel_partido(mid, nom_vis, df_jug, tiene_xg_partido)
+            expandir_planteles = st.checkbox(
+                "Mostrar planillas completas sin scroll vertical",
+                value=True,
+                key="busc_expandir_planteles",
+            )
+            _render_plantel_partido(mid, nom_loc, df_jug, tiene_xg_partido, expandir_todo=expandir_planteles)
+            _render_plantel_partido(mid, nom_vis, df_jug, tiene_xg_partido, expandir_todo=expandir_planteles)
