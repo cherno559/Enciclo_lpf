@@ -10,6 +10,9 @@ W_XG = 0.70
 K_PRIOR_BASE, K_PRIOR_MIN = 12.0, 8.0
 MAX_GOALS_MATRIX = 7
 PESO_HISTORICO = 0.75
+# False (comportamiento original): los λ usan solo el torneo 'Actual'; el 'Histórico' solo alimenta el Elo.
+# True: los λ también usan el torneo previo, con peso fijo PESO_HISTORICO (sin decaimiento por fecha).
+INCLUIR_HISTORICO = False
 LAM_MIN, LAM_MAX = 0.20, 5.00
 FUERZA_RIVAL_MIN, FUERZA_RIVAL_MAX = 0.65, 1.40
 HGA_LAMBDA = 0.18
@@ -768,7 +771,14 @@ def escala_goles(l: dict, es_loc: bool = True) -> float:
 
 
 def calcular_lambdas(df, eq_a, eq_b, es_loc, tabla, half_life=4.0):
-    df_actual = df[df["Categoria"] == "Actual"]
+    # es_loc=False => cancha neutral: se promedian las dos orientaciones (A local / B local),
+    # lo que cancela el efecto localía y mantiene cada λ asociado a su equipo.
+    if not es_loc:
+        a_h, b_v = calcular_lambdas(df, eq_a, eq_b, True, tabla, half_life)
+        b_h, a_v = calcular_lambdas(df, eq_b, eq_a, True, tabla, half_life)
+        return round((a_h + a_v) / 2, 3), round((b_v + b_h) / 2, 3)
+
+    df_actual = df if INCLUIR_HISTORICO else df[df["Categoria"] == "Actual"]
     if df_actual.empty:
         df_actual = df
 
@@ -811,9 +821,6 @@ def calcular_lambdas(df, eq_a, eq_b, es_loc, tabla, half_life=4.0):
     la *= k_goles
     lb *= k_goles
 
-    if not es_loc:
-        la, lb = lb, la
-
     return (
         round(float(np.clip(la, LAM_MIN, LAM_MAX)), 3),
         round(float(np.clip(lb, LAM_MIN, LAM_MAX)), 3),
@@ -821,6 +828,11 @@ def calcular_lambdas(df, eq_a, eq_b, es_loc, tabla, half_life=4.0):
 
 
 def proyectar_metrica(df, eq_a, eq_b, metrica, es_loc):
+    if not es_loc:  # cancha neutral: promedio de ambas orientaciones
+        a_h, b_v = proyectar_metrica(df, eq_a, eq_b, metrica, True)
+        b_h, a_v = proyectar_metrica(df, eq_b, eq_a, metrica, True)
+        return (a_h + a_v) / 2, (b_v + b_h) / 2
+
     df_m = df[df["Métrica"] == metrica]
     if df_m.empty:
         return 0.0, 0.0
@@ -936,8 +948,12 @@ def simular_partido_completo(
         lb = lb * mod_xi_vis["mult_atk"]
         la = la / mod_xi_vis["mult_def"]
 
-    elo_l = elos["local"].get(eq_local, 1500.0)
-    elo_v = elos["visitante"].get(eq_vis, 1500.0)
+    if aplicar_localia:
+        elo_l = elos["local"].get(eq_local, 1500.0)
+        elo_v = elos["visitante"].get(eq_vis, 1500.0)
+    else:  # neutral: Elo promedio local/visitante, sin sesgo de localía
+        elo_l = (elos["local"].get(eq_local, 1500.0) + elos["visitante"].get(eq_local, 1500.0)) / 2
+        elo_v = (elos["local"].get(eq_vis, 1500.0) + elos["visitante"].get(eq_vis, 1500.0)) / 2
     fact_prof_l = max(0.8, elo_l / 1500.0)
     fact_prof_v = max(0.8, elo_v / 1500.0)
 
