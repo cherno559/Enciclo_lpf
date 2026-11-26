@@ -217,12 +217,9 @@ def _render_plantel_partido(mid, equipo: str, df_jug: pd.DataFrame, tiene_xg: bo
     data["Pérdidas"] = _col_int("possessionLostCtrl")
     data["Atajadas"] = _col_int("saves")
 
-    if "kilometersCovered" in sub.columns and sub["kilometersCovered"].fillna(0).sum() > 0:
-        data["Km"] = _col_flt("kilometersCovered")
-
     df_pl = pd.DataFrame(data)
     fmt = {}
-    for c_dec in ["xG", "xGOT", "xA", "Km"]:
+    for c_dec in ["xG", "xGOT", "xA"]:
         if c_dec in df_pl.columns:
             fmt[c_dec] = "{:.2f}"
 
