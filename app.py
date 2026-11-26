@@ -111,6 +111,40 @@ def cargar_datos_locales() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     return _preparar_fechas(df_eq), _preparar_fechas(df_jug), _preparar_fechas(df_tiros)
 
 
+@st.cache_data(show_spinner=False)
+def filtrar_datasets(
+    df_eq: pd.DataFrame,
+    df_jug: pd.DataFrame,
+    df_tiros: pd.DataFrame,
+    periodos_sel: tuple[str, ...],
+    incluir_playoffs: bool,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    if periodos_sel and "torneo" in df_eq.columns:
+        df_eq_filt = df_eq[df_eq["torneo"].isin(periodos_sel)].copy()
+    else:
+        df_eq_filt = df_eq.copy()
+
+    if not incluir_playoffs and "es_playoff" in df_eq_filt.columns:
+        mask_po = df_eq_filt["es_playoff"].fillna(False).astype(bool)
+        df_eq_filt = df_eq_filt[~mask_po].copy()
+
+    mids_validos = set(df_eq_filt["match_id"].unique()) if "match_id" in df_eq_filt.columns else None
+
+    def _sincronizar_df(df_sub: pd.DataFrame) -> pd.DataFrame:
+        if df_sub.empty:
+            return df_sub
+        out = df_sub.copy()
+        if "match_id" in out.columns and mids_validos is not None:
+            return out[out["match_id"].isin(mids_validos)].copy()
+        if periodos_sel and "torneo" in out.columns:
+            out = out[out["torneo"].isin(periodos_sel)].copy()
+        if not incluir_playoffs and "es_playoff" in out.columns:
+            out = out[~out["es_playoff"].fillna(False).astype(bool)].copy()
+        return out
+
+    return df_eq_filt, _sincronizar_df(df_jug), _sincronizar_df(df_tiros)
+
+
 def _llamar_vista(
     modulo_nombre: str,
     func_nombres: list[str],
@@ -207,33 +241,9 @@ if not df_eq.empty:
             key="filtro_playoffs_global",
         )
 
-    # 1) Filtrar por torneos seleccionados
-    if periodos_sel and "torneo" in df_eq.columns:
-        df_eq_filt = df_eq[df_eq["torneo"].isin(periodos_sel)].copy()
-    else:
-        df_eq_filt = df_eq.copy()
-
-    # 2) Filtrar Playoffs si el interruptor está apagado
-    if not incluir_playoffs and "es_playoff" in df_eq_filt.columns:
-        mask_po = df_eq_filt["es_playoff"].fillna(False).astype(bool)
-        df_eq_filt = df_eq_filt[~mask_po].copy()
-
-    mids_validos = set(df_eq_filt["match_id"].unique()) if "match_id" in df_eq_filt.columns else None
-
-    def _sincronizar_df(df_sub: pd.DataFrame) -> pd.DataFrame:
-        if df_sub.empty:
-            return df_sub
-        out = df_sub.copy()
-        if "match_id" in out.columns and mids_validos is not None:
-            return out[out["match_id"].isin(mids_validos)].copy()
-        if periodos_sel and "torneo" in out.columns:
-            out = out[out["torneo"].isin(periodos_sel)].copy()
-        if not incluir_playoffs and "es_playoff" in out.columns:
-            out = out[~out["es_playoff"].fillna(False).astype(bool)].copy()
-        return out
-
-    df_jug_filt = _sincronizar_df(df_jug)
-    df_tiros_filt = _sincronizar_df(df_tiros)
+    df_eq_filt, df_jug_filt, df_tiros_filt = filtrar_datasets(
+        df_eq, df_jug, df_tiros, tuple(periodos_sel), incluir_playoffs
+    )
 
     with f3:
         n_partidos = df_eq_filt["match_id"].nunique() if "match_id" in df_eq_filt.columns else len(df_eq_filt) // 2
@@ -253,7 +263,6 @@ if not df_eq.empty:
             unsafe_allow_html=True,
         )
 
-    # Si hay un único torneo seleccionado (ej. "Torneo Clausura"), conserva su nombre exacto
     if len(periodos_sel) == 1:
         periodo_label = periodos_sel[0]
     elif len(periodos_sel) > 1:
@@ -261,14 +270,50 @@ if not df_eq.empty:
     else:
         periodo_label = "Temporada Completa"
 
-    # ── Navegación Principal de Enciclo LPF ──
-    tab_eq, tab_jug, tab_sim = st.tabs([
-        "🏟️ Clubes y Estadísticas",
-        "🏃 Jugadores y Scouting",
-        "🔮 Simulador Predictivo",
-    ])
+    # ── Navegación Principal con Carga Diferida (solo ejecuta la sección activa) ──
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stRadio"] > div[role="radiogroup"] {
+            gap: 8px;
+            border-bottom: 1px solid #26262d;
+            padding-bottom: 10px;
+            margin-bottom: 12px;
+        }
+        div[data-testid="stRadio"] > div[role="radiogroup"] label {
+            background: #17171c;
+            border: 1px solid #26262d;
+            border-radius: 6px;
+            padding: 6px 14px;
+            cursor: pointer;
+        }
+        div[data-testid="stRadio"] > div[role="radiogroup"] label:has(input:checked) {
+            background: #ED1A3B;
+            border-color: #ED1A3B;
+            color: #ffffff;
+            font-weight: 700;
+        }
+        div[data-testid="stRadio"] > div[role="radiogroup"] label > div:first-child {
+            display: none;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    with tab_eq:
+    seccion_activa = st.radio(
+        "Sección",
+        options=[
+            "🏟️ Clubes y Estadísticas",
+            "🏃 Jugadores y Scouting",
+            "🔮 Simulador Predictivo",
+        ],
+        horizontal=True,
+        label_visibility="collapsed",
+        key="nav_principal_enciclo",
+    )
+
+    if seccion_activa == "🏟️ Clubes y Estadísticas":
         _llamar_vista(
             "equipos",
             ["render_equipos", "render_vista_equipos"],
@@ -277,8 +322,7 @@ if not df_eq.empty:
             df_tiros_filt,
             periodo_label,
         )
-
-    with tab_jug:
+    elif seccion_activa == "🏃 Jugadores y Scouting":
         _llamar_vista(
             "jugadores",
             ["render_jugadores", "render_vista_jugadores"],
@@ -287,8 +331,7 @@ if not df_eq.empty:
             df_tiros_filt,
             periodo_label,
         )
-
-    with tab_sim:
+    else:
         render_simulador(df_eq_filt, df_jug_filt, periodo=periodo_label)
 
 st.markdown("<div style='margin-top:24px;'></div>", unsafe_allow_html=True)
