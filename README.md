@@ -29,24 +29,31 @@ Plataforma interactiva de **análisis estadístico, scouting y modelado predicti
 * **Comparador de Jugadores:** Gráficos de **radar de percentiles cada 90'** calibrados por posición frente al universo de jugadores de la liga, acompañados de su tabla de métricas reales.
 * **Líderes por Fecha:** Ranking automático de los mejores rendimientos por posición en cada jornada e instancia eliminatoria.
 
-### 3. 🔮 Simulador Predictivo (`src/predictor_lpf.py`)
-* **Modelo Estadístico Híbrido:** Estimación de probabilidades de resultado (`1X2`), marcadores exactos y expectativa de goles mediante distribuciones de **Poisson / Dixon-Coles** ponderadas por **rating Elo** dinámico, fuerza ofensiva/defensiva ajustada por rival y factor de localía.
-* **Simulación de Fechas y Escenarios:** Proyección de partidos individuales y simulación de jornadas completas para evaluar probabilidades de clasificación y cierre de tabla.
+### 3. 🔮 Simulador Predictivo (`modelo_predictivo.py`)
+* **Modelo Estadístico Bivariado:** Estimación de probabilidades de resultado (`1X2`), marcadores exactos y expectativa de goles mediante distribuciones de **Dixon-Coles / Poisson** ponderadas por **rating xG-Elo** dinámico, fuerza ofensiva/defensiva ajustada por rival y factor de localía.
+* **Simulación de Fechas y Escenarios:** Proyección de partidos individuales y simulación Monte Carlo de jornadas completas para evaluar probabilidades de clasificación y cierre de tabla.
 
 ---
 
 ## 🗂️ Arquitectura del Proyecto
 
 ```text
-lpf_pred/
-├── streamlit_app.py          # Punto de entrada, configuración de UI y enrutamiento principal
-├── escudos_helper.py         # Gestión y renderizado en Base64 de escudos oficiales de clubes
+enciclo-lpf/
+├── app.py                    # Punto de entrada de la app, navegación y filtros globales
+├── cargador.py               # Capa de carga, filtrado y cacheo (@st.cache_data) de datasets
+├── tema_enciclo.py           # Estilos CSS custom, paleta dark-mode y componentes visuales
+├── escudos_helper.py         # Gestión y renderizado en Base64 de escudos oficiales
+├── modelo_predictivo.py      # Motor matemático (xG-Elo + Dixon-Coles) y simulador de partidos
+├── panorama.py               # Vista general y resumen estadístico de la competición
 ├── vistas/
-│   ├── equipos.py            # Módulo de tablas, fichas de club, comparador y match center
-│   └── jugadores.py          # Módulo de scouting, rankings p90, radares y desglose por partido
-├── src/
-│   └── predictor_lpf.py      # Motor matemático (Elo / Dixon-Coles / Poisson) y simulador
-├── datos/                    # Datasets procesados en formato Parquet / Excel (equipos, jugadores, tiros)
+│   ├── equipos.py            # Tablas de liga, ficha de club, comparador y match center
+│   └── jugadores.py          # Rankings p90, ficha de jugador, rendimiento por partido y radares
+├── scraper.py                # Pipeline de recolección automatizada de partidos, eventos y tiros
+├── bajar_puntuales.py        # Utilidad para descarga y actualización de encuentros específicos
+├── preparar_datos.py         # Limpieza, normalización de métricas y exportación a Parquet
+├── datos/                    # Datasets procesados (equipos, jugadores y tiros en Parquet)
+├── assets/
+│   └── escudos/              # Escudos oficiales de los clubes de Primera División
 └── requirements.txt          # Dependencias del entorno Python
 ```
 
@@ -54,9 +61,9 @@ lpf_pred/
 
 ## 🛠️ Stack Tecnológico
 
-* **Core & Procesamiento de Datos:** Python, `pandas`, `numpy`, `scipy`, `pyarrow` (Parquet).
+* **Core & Ingeniería de Datos:** Python, `pandas`, `numpy`, `scipy`, `pyarrow` (Parquet).
 * **Visualización Interactiva:** `plotly` (scatter plots, series temporales, barras agrupadas, radares polares).
-* **Frontend & Despliegue:** `streamlit` (arquitectura multipestaña con caché de datos `@st.cache_data` y estilizado CSS custom en modo oscuro).
+* **Frontend & Despliegue:** `streamlit` (arquitectura modular con carga diferida de vistas y caché en memoria).
 
 ---
 
@@ -64,8 +71,8 @@ lpf_pred/
 
 1. **Clonar el repositorio:**
    ```bash
-   git clone [https://github.com/cherno559/lpf_pred.git](https://github.com/cherno559/lpf_pred.git)
-   cd lpf_pred
+   git clone [https://github.com/cherno559/enciclo-lpf.git](https://github.com/cherno559/enciclo-lpf.git)
+   cd enciclo-lpf
    ```
 
 2. **Crear y activar un entorno virtual:**
@@ -82,7 +89,7 @@ lpf_pred/
 
 4. **Ejecutar la aplicación:**
    ```bash
-   streamlit run streamlit_app.py
+   streamlit run app.py
    ```
 
 ---
