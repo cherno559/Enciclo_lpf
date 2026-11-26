@@ -66,6 +66,15 @@ def render_simulador(df_eq: pd.DataFrame, df_jug: pd.DataFrame, periodo: str = "
         st.warning("Se necesitan al menos 2 equipos en el período seleccionado.")
         return
 
+    with st.expander("📖 Guía de uso y aclaraciones del simulador"):
+        st.markdown("""
+        * **Es un modelo probabilístico, no una bola de cristal:** El simulador estima escenarios posibles a partir del rendimiento histórico (`xG`, goles, fuerza del rival, localía y Elo dinámico). Un 65% de victoria significa que, jugando ese partido 100 veces en condiciones similares, ese equipo ganaría ~65 veces, pero el fútbol siempre conserva margen para la sorpresa.
+        * **Cómo leer `λ` (Goles Esperados del cruce):** Representa el promedio de goles proyectado para cada equipo en este enfrentamiento específico. A partir de `λ` se calcula toda la matriz de marcadores exactos (`0-0`, `1-0`, `2-1`, etc.) y las probabilidades `1X2`.
+        * **11 Titular:** Por defecto carga la última formación utilizada por cada club. Si cambiás nombres (por lesiones, suspensiones o rotación), el motor recalcula automáticamente el peso ofensivo y defensivo del equipo.
+        * **Penalización extra (%):** Es un **ajuste manual de contexto**. Usalo cuando un equipo llega disminuido por factores que los datos previos no ven (rotación masiva por copa internacional, bajas sensibles de último momento, desgaste de viaje o contexto adverso). Subir la barra reduce su expectativa de gol y aumenta la del rival.
+        * **Peso forma reciente:** Controla cuánto pesan las últimas fechas frente al rendimiento acumulado del año (*Agresivo* reacciona rápido a rachas; *Conservador* prioriza la muestra larga).
+        """)
+
     # ── Selectores del Cruce 1 vs 1 con Escudos ──
     c1, c_mid, c2 = st.columns([2.2, 0.45, 2.2])
     idx_riv = equipos.index("River Plate") if "River Plate" in equipos else 0
@@ -166,16 +175,29 @@ def render_simulador(df_eq: pd.DataFrame, df_jug: pd.DataFrame, periodo: str = "
     with st.expander("⚙️ Ajustes adicionales de contexto (cancha neutral, penalización extra, half-life)"):
         a1, a2, a3, a4 = st.columns(4)
         with a1:
-            neutral = st.checkbox("Cancha neutral (Playoffs)", value=False)
+            neutral = st.checkbox(
+                "Cancha neutral (Playoffs)",
+                value=False,
+                help="Elimina la ventaja de localía en el cálculo de goles esperados.",
+            )
         with a2:
-            pen_loc = st.slider(f"Penalización extra {eq_local[:14]} (%)", 0, 45, 0, step=5)
+            pen_loc = st.slider(
+                f"Penalización extra {eq_local[:14]} (%)",
+                0, 45, 0, step=5,
+                help="Castigo contextual manual (bajas sensibles, rotación por copa, desgaste o contexto adverso). Reduce el λ propio y aumenta el del rival.",
+            )
         with a3:
-            pen_vis = st.slider(f"Penalización extra {eq_vis[:14]} (%)", 0, 45, 0, step=5)
+            pen_vis = st.slider(
+                f"Penalización extra {eq_vis[:14]} (%)",
+                0, 45, 0, step=5,
+                help="Castigo contextual manual (bajas sensibles, rotación por copa, desgaste o contexto adverso). Reduce el λ propio y aumenta el del rival.",
+            )
         with a4:
             peso_forma = st.select_slider(
                 "Peso forma reciente",
                 options=["Conservador", "Calibrado (4 fechas)", "Agresivo"],
                 value="Calibrado (4 fechas)",
+                help="Define qué tan rápido reacciona el modelo a las últimas fechas respecto al historial del torneo.",
             )
             hl_map = {"Conservador": 8.0, "Calibrado (4 fechas)": 4.0, "Agresivo": 2.2}
 
@@ -263,7 +285,7 @@ def render_simulador(df_eq: pd.DataFrame, df_jug: pd.DataFrame, periodo: str = "
         yaxis=dict(visible=False),
         showlegend=False,
     )
-    st.plotly_chart(fig_bar, use_container_width=True)
+    st.plotly_chart(fig_bar, width="stretch")
 
     # ── 2. TENDENCIAS, MARCADORES EXACTOS Y MATRIZ ──
     col_m1, col_m2, col_m3 = st.columns([1.15, 1.1, 1.35])
@@ -281,7 +303,7 @@ def render_simulador(df_eq: pd.DataFrame, df_jug: pd.DataFrame, periodo: str = "
         st.dataframe(
             df_tend.style.set_properties(subset=["Probabilidad"], **{"color": GOLD, "font-weight": "bold"}),
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
             height=252,
         )
 
@@ -293,7 +315,7 @@ def render_simulador(df_eq: pd.DataFrame, df_jug: pd.DataFrame, periodo: str = "
             top_m.style.set_properties(subset=["Marcador"], **{"font-weight": "bold", "color": "#ffffff"})
             .set_properties(subset=["Probabilidad"], **{"color": RED, "font-weight": "bold"}),
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
             height=220,
         )
 
@@ -317,7 +339,7 @@ def render_simulador(df_eq: pd.DataFrame, df_jug: pd.DataFrame, periodo: str = "
             yaxis=dict(autorange="reversed", tickfont=dict(size=10, color=AXIS_TXT)),
             xaxis=dict(tickfont=dict(size=10, color=AXIS_TXT)),
         )
-        st.plotly_chart(fig_hm, use_container_width=True)
+        st.plotly_chart(fig_hm, width="stretch")
 
     # ── 3. PROYECCIÓN DE MÉTRICAS DEL PARTIDO Y JUGADORES ──
     st.markdown("---")
@@ -330,7 +352,7 @@ def render_simulador(df_eq: pd.DataFrame, df_jug: pd.DataFrame, periodo: str = "
         st.dataframe(
             sim["metricas_partido"].style.set_properties(subset=["Métrica"], **{"font-weight": "bold"}),
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
             height=430,
         )
 
@@ -380,7 +402,7 @@ def render_simulador(df_eq: pd.DataFrame, df_jug: pd.DataFrame, periodo: str = "
                     .set_properties(subset=["Índice Figura"], **{"color": GOLD, "font-weight": "bold"}),
                     column_config={"Escudo": config_columna_escudo("")},
                     hide_index=True,
-                    use_container_width=True,
+                    width="stretch",
                     height=min(alto, (len(show) * 35) + 42),
                 )
 
@@ -398,7 +420,7 @@ def render_simulador(df_eq: pd.DataFrame, df_jug: pd.DataFrame, periodo: str = "
                         .set_properties(subset=["% Gol"], **{"color": RED, "font-weight": "bold"}),
                         column_config={"Escudo": config_columna_escudo("")},
                         hide_index=True,
-                        use_container_width=True,
+                        width="stretch",
                     )
                 with c_g2:
                     st.markdown("**🎯 Mayor Probabilidad de Gol o Asistencia**")
@@ -412,7 +434,7 @@ def render_simulador(df_eq: pd.DataFrame, df_jug: pd.DataFrame, periodo: str = "
                         .set_properties(subset=["% G+A"], **{"color": GOLD, "font-weight": "bold"}),
                         column_config={"Escudo": config_columna_escudo("")},
                         hide_index=True,
-                        use_container_width=True,
+                        width="stretch",
                     )
 
                 st.markdown("**🏆 Ranking Global de Figuras Proyectadas del Partido**")

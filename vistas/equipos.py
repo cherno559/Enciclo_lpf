@@ -51,6 +51,24 @@ def _estilizar_ejes(fig, grid_x=False, grid_y=True):
     return fig
 
 
+def _ir_a_ficha_club(club_nombre: str):
+    st.session_state["eq_ficha_club_sel"] = club_nombre
+    st.session_state["eq_subvista_nav"] = "🔎 Ficha de Club"
+
+
+def _ir_a_buscador_partido(label_partido: str):
+    st.session_state["busc_eq"] = "Todos los equipos"
+    st.session_state["busc_partido"] = label_partido
+    st.session_state["eq_subvista_nav"] = "🔍 Buscador de Partidos"
+
+
+def _ir_a_ficha_jugador_desde_club(nombre_jugador: str):
+    st.session_state["ficha_jug_eq"] = "Todos"
+    st.session_state["ficha_jug_nombre"] = nombre_jugador
+    st.session_state["jug_subvista_nav"] = "🔎 Ficha de Jugador"
+    st.session_state["nav_principal_enciclo"] = "🏃 Jugadores y Scouting"
+
+
 @st.cache_data(show_spinner=False)
 def _cargar_tiros_fallback() -> pd.DataFrame:
     ruta = Path(__file__).resolve().parents[1] / "datos" / "tiros.parquet"
@@ -78,7 +96,6 @@ def _resumen_goles_asistencias(mid, equipo: str, df_jug: pd.DataFrame, df_tiros:
     """Devuelve dos strings formateados: (goleadores_txt, asistidores_txt) para un equipo en un partido."""
     jug_m = df_jug[(df_jug["match_id"] == mid) & (df_jug["equipo"] == equipo)].copy() if not df_jug.empty else pd.DataFrame()
 
-    # ── Goleadores ──
     mins_por_jug: dict[str, list[str]] = {}
     if not df_tiros.empty and "match_id" in df_tiros.columns:
         t_m = df_tiros[df_tiros["match_id"] == mid].copy()
@@ -122,7 +139,6 @@ def _resumen_goles_asistencias(mid, equipo: str, df_jug: pd.DataFrame, df_tiros:
             cant = int(round(r["goals"]))
             goleadores_lista.append(f"{nom} (x{cant})" if cant > 1 else nom)
 
-    # ── Asistidores ──
     asist_lista = []
     if not jug_m.empty and "goalAssist" in jug_m.columns:
         a_df = jug_m[jug_m["goalAssist"].fillna(0) > 0].sort_values(["goalAssist", "rating"], ascending=[False, False])
@@ -134,6 +150,58 @@ def _resumen_goles_asistencias(mid, equipo: str, df_jug: pd.DataFrame, df_tiros:
     goles_txt = " · ".join(goleadores_lista)
     asist_txt = " · ".join(asist_lista)
     return goles_txt, asist_txt
+
+
+def _generar_texto_resumen_partido(
+    fila_m: pd.Series,
+    row_l: pd.Series,
+    row_v: pd.Series,
+    mid,
+    df_jug: pd.DataFrame,
+    goles_l_txt: str,
+    goles_v_txt: str,
+    asist_l_txt: str,
+    asist_v_txt: str,
+    tiene_xg: bool,
+) -> str:
+    nom_loc = fila_m["local"]
+    nom_vis = fila_m["visitante"]
+    gl = int(row_l["goles_favor"])
+    gv = int(row_v["goles_favor"])
+
+    lineas = [
+        f"⚽ {nom_loc} {gl} - {gv} {nom_vis}",
+        f"🏆 {fila_m['torneo']} · {fila_m['Instancia_Txt']} ({fila_m['fecha']})",
+        "",
+    ]
+
+    if goles_l_txt:
+        lineas.append(f"Goles {nom_loc}: {goles_l_txt}")
+    if asist_l_txt:
+        lineas.append(f"Asist. {nom_loc}: {asist_l_txt}")
+    if goles_v_txt:
+        lineas.append(f"Goles {nom_vis}: {goles_v_txt}")
+    if asist_v_txt:
+        lineas.append(f"Asist. {nom_vis}: {asist_v_txt}")
+    if goles_l_txt or goles_v_txt:
+        lineas.append("")
+
+    if tiene_xg:
+        lineas.append(f"📊 xG: {float(row_l['expected_goals']):.2f} - {float(row_v['expected_goals']):.2f}")
+    lineas.append(f"🎯 Tiros (al arco): {int(row_l['total_shots_on_goal'])} ({int(row_l['shots_on_goal'])}) - {int(row_v['total_shots_on_goal'])} ({int(row_v['shots_on_goal'])})")
+    lineas.append(f"🔄 Posesión: {float(row_l['ball_possession']):.1f}% - {float(row_v['ball_possession']):.1f}%")
+
+    if not df_jug.empty:
+        jm = df_jug[(df_jug["match_id"] == mid) & (df_jug["minutesPlayed"].fillna(0) > 0)].copy()
+        jm["rating_num"] = pd.to_numeric(jm["rating"], errors="coerce")
+        jm = jm.dropna(subset=["rating_num"]).sort_values(["rating_num", "minutesPlayed"], ascending=[False, False])
+        if not jm.empty:
+            top_fig = jm.iloc[0]
+            lineas.append(f"⭐ Figura del partido: {top_fig['jugador']} ({top_fig['equipo']}) — Nota {top_fig['rating_num']:.2f}")
+
+    lineas.append("")
+    lineas.append("📲 Datos vía Enciclo LPF · enciclolpf.streamlit.app")
+    return "\n".join(lineas)
 
 
 def _render_plantel_partido(mid, equipo: str, df_jug: pd.DataFrame, tiene_xg: bool, expandir_todo: bool = False):
@@ -235,6 +303,26 @@ def _render_plantel_partido(mid, equipo: str, df_jug: pd.DataFrame, tiene_xg: bo
         height=alto_tabla,
     )
 
+    # Conector directo hacia la Ficha del Jugador elegido en este plantel
+    jugs_plantel = list(dict.fromkeys(sub["jugador"].dropna().tolist()))
+    if jugs_plantel:
+        c_js, c_jb = st.columns([3.5, 1])
+        with c_js:
+            jug_ir = st.selectbox(
+                f"Ver ficha de jugador de {equipo}",
+                jugs_plantel,
+                key=f"busc_jug_sel_{mid}_{equipo}",
+                label_visibility="collapsed",
+            )
+        with c_jb:
+            st.button(
+                "🏃 Ficha Jugador",
+                key=f"busc_jug_btn_{mid}_{equipo}",
+                width="stretch",
+                on_click=_ir_a_ficha_jugador_desde_club,
+                args=(jug_ir,),
+            )
+
 
 def render_equipos(df_eq: pd.DataFrame, df_jug: pd.DataFrame, df_tiros: pd.DataFrame, periodo: str = "Temporada Completa"):
     if df_eq.empty:
@@ -245,17 +333,24 @@ def render_equipos(df_eq: pd.DataFrame, df_jug: pd.DataFrame, df_tiros: pd.DataF
     equipos_lista = sorted(df["equipo"].dropna().unique())
     solo_clausura = (periodo == "Torneo Clausura") and (df["expected_goals"].fillna(0).sum() > 0)
 
-    tab_liga, tab_ficha, tab_comp, tab_partidos = st.tabs([
-        "📊 Tablas de Liga",
-        "🔎 Ficha de Club",
-        "⚔️ Comparador",
-        "🔍 Buscador de Partidos",
-    ])
+    # Navegación de sub-vistas con estado compartido (permite saltar entre pestañas)
+    sub_eq = st.radio(
+        "Vista de clubes",
+        options=[
+            "📊 Tablas de Liga",
+            "🔎 Ficha de Club",
+            "⚔️ Comparador",
+            "🔍 Buscador de Partidos",
+        ],
+        horizontal=True,
+        label_visibility="collapsed",
+        key="eq_subvista_nav",
+    )
 
     # =========================================================================
-    # TAB 1: TABLAS DE LIGA
+    # VISTA 1: TABLAS DE LIGA
     # =========================================================================
-    with tab_liga:
+    if sub_eq == "📊 Tablas de Liga":
         c1, c2 = st.columns([2, 2])
         with c1:
             cond_liga = st.radio("Condición", ["General", "Local", "Visitante"], horizontal=True, key="eq_cond_liga")
@@ -331,6 +426,24 @@ def render_equipos(df_eq: pd.DataFrame, df_jug: pd.DataFrame, df_tiros: pd.DataF
             metricas_practicas = ["GF", "GC", "Pos %", "Tiros", "Al Arco", "Córners", "Atajadas", "Efec %"]
             def_x, def_y = "GF", "GC"
 
+        # Acceso directo a Ficha de Club desde Tablas de Liga
+        c_ir_club, c_btn_club = st.columns([3.5, 1])
+        with c_ir_club:
+            club_ir_sel = st.selectbox(
+                "Ir a la ficha de un club",
+                resumen["Equipo"].tolist(),
+                key="liga_ir_club_sel",
+                label_visibility="collapsed",
+            )
+        with c_btn_club:
+            st.button(
+                "🔎 Ficha del Club",
+                key="liga_ir_club_btn",
+                width="stretch",
+                on_click=_ir_a_ficha_club,
+                args=(club_ir_sel,),
+            )
+
         resumen_tbl = agregar_columna_escudo(resumen, col_equipo="Equipo")
         st.dataframe(
             resumen_tbl.style.format(fmt)
@@ -369,15 +482,19 @@ def render_equipos(df_eq: pd.DataFrame, df_jug: pd.DataFrame, df_tiros: pd.DataF
         st.plotly_chart(fig_exp, width="stretch")
 
     # =========================================================================
-    # TAB 2: FICHA DE CLUB
+    # VISTA 2: FICHA DE CLUB
     # =========================================================================
-    with tab_ficha:
+    elif sub_eq == "🔎 Ficha de Club":
+        default_club = "River Plate" if "River Plate" in equipos_lista else equipos_lista[0]
+        if st.session_state.get("eq_ficha_club_sel") not in equipos_lista:
+            st.session_state["eq_ficha_club_sel"] = default_club
+
         col_sel_c, col_esc_c = st.columns([2.2, 1.8])
         with col_sel_c:
             club = st.selectbox(
                 "Seleccioná un Club",
                 equipos_lista,
-                index=equipos_lista.index("River Plate") if "River Plate" in equipos_lista else 0,
+                key="eq_ficha_club_sel",
             )
         with col_esc_c:
             st.markdown(f"""
@@ -545,7 +662,7 @@ def render_equipos(df_eq: pd.DataFrame, df_jug: pd.DataFrame, df_tiros: pd.DataF
             else:
                 st.info("Sin datos de formación disponibles.")
 
-        # ── Historial de Partidos ──
+        # ── Historial de Partidos + Conector al Buscador de Partidos ──
         st.markdown('<div class="section-header">Historial de Partidos</div>', unsafe_allow_html=True)
         hist = d_club.copy()
         hist["Instancia"] = hist.apply(
@@ -555,18 +672,52 @@ def render_equipos(df_eq: pd.DataFrame, df_jug: pd.DataFrame, df_tiros: pd.DataF
         hist["Resultado"] = hist["goles_favor"].astype(int).astype(str) + " - " + hist["goles_contra"].astype(int).astype(str)
         hist["Condición"] = hist["condicion"].str.capitalize()
 
+        # Construir exactamente la misma etiqueta que usa el Buscador de Partidos
+        hist["Label_Buscador"] = (
+            hist["torneo"].astype(str)
+            + " · "
+            + hist["Instancia"]
+            + " | "
+            + hist["local"]
+            + " "
+            + hist["goles_local"].astype(int).astype(str)
+            + " - "
+            + hist["goles_visitante"].astype(int).astype(str)
+            + " "
+            + hist["visitante"]
+        )
+
+        hist_rev = hist.iloc[::-1].reset_index(drop=True)
+        if not hist_rev.empty:
+            c_hs, c_hb = st.columns([3.5, 1])
+            with c_hs:
+                partido_ir_label = st.selectbox(
+                    "Abrir resumen estadístico de un partido del historial",
+                    hist_rev["Label_Buscador"].tolist(),
+                    key=f"ficha_club_ir_partido_{club}",
+                    label_visibility="collapsed",
+                )
+            with c_hb:
+                st.button(
+                    "🔍 Ver Partido",
+                    key=f"ficha_club_ir_partido_btn_{club}",
+                    width="stretch",
+                    on_click=_ir_a_buscador_partido,
+                    args=(partido_ir_label,),
+                )
+
         if solo_clausura:
-            tabla_hist = hist[["fecha", "torneo", "Instancia", "Condición", "rival", "Resultado", "expected_goals", "expected_goals_contra", "ball_possession"]].copy()
+            tabla_hist = hist_rev[["fecha", "torneo", "Instancia", "Condición", "rival", "Resultado", "expected_goals", "expected_goals_contra", "ball_possession"]].copy()
             tabla_hist.columns = ["Fecha", "Torneo", "Instancia", "Condición", "Rival", "Resultado", "xG Favor", "xG Contra", "Posesión %"]
             fmt_hist = {"xG Favor": "{:.2f}", "xG Contra": "{:.2f}", "Posesión %": "{:.1f}%"}
         else:
-            tabla_hist = hist[["fecha", "torneo", "Instancia", "Condición", "rival", "Resultado", "total_shots_on_goal", "shots_on_goal", "ball_possession"]].copy()
+            tabla_hist = hist_rev[["fecha", "torneo", "Instancia", "Condición", "rival", "Resultado", "total_shots_on_goal", "shots_on_goal", "ball_possession"]].copy()
             tabla_hist.columns = ["Fecha", "Torneo", "Instancia", "Condición", "Rival", "Resultado", "Tiros", "Al Arco", "Posesión %"]
             tabla_hist["Tiros"] = tabla_hist["Tiros"].fillna(0).astype(int)
             tabla_hist["Al Arco"] = tabla_hist["Al Arco"].fillna(0).astype(int)
             fmt_hist = {"Posesión %": "{:.1f}%"}
 
-        tabla_hist_show = agregar_columna_escudo(tabla_hist.iloc[::-1].reset_index(drop=True), col_equipo="Rival")
+        tabla_hist_show = agregar_columna_escudo(tabla_hist, col_equipo="Rival")
         st.dataframe(
             tabla_hist_show.style.format(fmt_hist),
             column_config={"Escudo": config_columna_escudo("")},
@@ -575,9 +726,9 @@ def render_equipos(df_eq: pd.DataFrame, df_jug: pd.DataFrame, df_tiros: pd.DataF
         )
 
     # =========================================================================
-    # TAB 3: COMPARADOR (2 o más equipos)
+    # VISTA 3: COMPARADOR (2 o más equipos)
     # =========================================================================
-    with tab_comp:
+    elif sub_eq == "⚔️ Comparador":
         default_eqs = [e for e in ["River Plate", "Boca Juniors"] if e in equipos_lista]
         if len(default_eqs) < 2 and len(equipos_lista) >= 2:
             default_eqs = equipos_lista[:2]
@@ -627,7 +778,8 @@ def render_equipos(df_eq: pd.DataFrame, df_jug: pd.DataFrame, df_tiros: pd.DataF
                     continue
                 fila = {"Métrica": label}
                 for eq in seleccionados:
-                    fila[eq] = round(float(df[df["equipo"] == eq][col].mean()), 2)
+                    val_m = df[df["equipo"] == eq][col].mean()
+                    fila[eq] = round(float(val_m), 2) if pd.notna(val_m) else 0.0
                 filas.append(fila)
 
             df_comp = pd.DataFrame(filas)
@@ -653,12 +805,16 @@ def render_equipos(df_eq: pd.DataFrame, df_jug: pd.DataFrame, df_tiros: pd.DataF
             st.plotly_chart(fig_comp, width="stretch")
 
     # =========================================================================
-    # TAB 4: BUSCADOR DE PARTIDOS
+    # VISTA 4: BUSCADOR DE PARTIDOS
     # =========================================================================
-    with tab_partidos:
+    else:
         f1, f2 = st.columns([2, 2])
+        eq_opts_busc = ["Todos los equipos"] + equipos_lista
+        if st.session_state.get("busc_eq") not in eq_opts_busc:
+            st.session_state["busc_eq"] = "Todos los equipos"
+
         with f1:
-            filtro_eq = st.selectbox("Filtrar por equipo", ["Todos los equipos"] + equipos_lista, key="busc_eq")
+            filtro_eq = st.selectbox("Filtrar por equipo", eq_opts_busc, key="busc_eq")
         with f2:
             df_loc = df[df["condicion"].str.lower() == "local"].sort_values("fecha_dt", ascending=False).copy()
             if filtro_eq != "Todos los equipos":
@@ -681,7 +837,11 @@ def render_equipos(df_eq: pd.DataFrame, df_jug: pd.DataFrame, df_tiros: pd.DataF
                 + " "
                 + df_loc["visitante"]
             )
-            partido_sel = st.selectbox("Seleccioná el partido", df_loc["Label_Partido"].tolist(), key="busc_partido")
+            opciones_part = df_loc["Label_Partido"].tolist()
+            if opciones_part and st.session_state.get("busc_partido") not in opciones_part:
+                st.session_state["busc_partido"] = opciones_part[0]
+
+            partido_sel = st.selectbox("Seleccioná el partido", opciones_part, key="busc_partido")
 
         if partido_sel:
             fila_m = df_loc[df_loc["Label_Partido"] == partido_sel].iloc[0]
@@ -728,7 +888,7 @@ def render_equipos(df_eq: pd.DataFrame, df_jug: pd.DataFrame, df_tiros: pd.DataF
             esc_v_partido = img_escudo_html(nom_vis, 52)
 
             html_placa = (
-                '<div style="background:linear-gradient(180deg, #17171c 0%, #121216 100%); border:1px solid #26262d; border-radius:14px; padding:22px; text-align:center; margin:12px 0 20px;">'
+                '<div style="background:linear-gradient(180deg, #17171c 0%, #121216 100%); border:1px solid #26262d; border-radius:14px; padding:22px; text-align:center; margin:12px 0 14px;">'
                 f'<div style="font-size:0.74rem; font-weight:800; color:#8b8b95; text-transform:uppercase; letter-spacing:2px; margin-bottom:12px;">{fila_m["torneo"]} · {fila_m["Instancia_Txt"]} · {fila_m["fecha"]}</div>'
                 '<div style="display:flex; justify-content:center; align-items:center; gap:24px;">'
                 '<div style="display:flex; align-items:center; justify-content:flex-end; gap:14px; flex:1;">'
@@ -743,6 +903,14 @@ def render_equipos(df_eq: pd.DataFrame, df_jug: pd.DataFrame, df_tiros: pd.DataF
                 '</div>'
             )
             st.markdown(html_placa, unsafe_allow_html=True)
+
+            with st.expander("📲 Copiar resumen del partido para WhatsApp / X"):
+                resumen_txt = _generar_texto_resumen_partido(
+                    fila_m, row_l, row_v, mid, df_jug,
+                    goles_l_txt, goles_v_txt, asist_l_txt, asist_v_txt,
+                    tiene_xg_partido,
+                )
+                st.code(resumen_txt, language=None)
 
             stats_partido = [
                 ("Posesión de balón", "ball_possession", "{:.1f}%"),

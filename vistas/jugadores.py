@@ -84,6 +84,55 @@ def _club_actual(equipo_str: str) -> str:
     return partes[-1] if partes else ""
 
 
+def _ir_a_ficha_jugador(nombre_jugador: str):
+    st.session_state["ficha_jug_eq"] = "Todos"
+    st.session_state["ficha_jug_nombre"] = nombre_jugador
+    st.session_state["jug_subvista_nav"] = "🔎 Ficha de Jugador"
+
+
+def _ir_a_rendimiento_partido(equipo_jugador: str, nombre_jugador: str, etiqueta_partido: str):
+    st.session_state["rend_part_eq"] = equipo_jugador
+    st.session_state["rend_part_jug"] = nombre_jugador
+    st.session_state["rend_part_match"] = etiqueta_partido
+    st.session_state["jug_subvista_nav"] = "🎯 Rendimiento por Partido"
+
+
+def _barra_acceso_ficha(jugadores_disponibles: list[str], key_prefix: str):
+    if not jugadores_disponibles:
+        return
+    unicos = list(dict.fromkeys([j for j in jugadores_disponibles if pd.notna(j)]))
+    if not unicos:
+        return
+    c_sel, c_btn = st.columns([3.5, 1])
+    with c_sel:
+        jug_ir = st.selectbox(
+            "🔎 Abrir ficha directa de un jugador de esta lista",
+            unicos,
+            key=f"{key_prefix}_sel",
+            label_visibility="collapsed",
+        )
+    with c_btn:
+        st.button(
+            "🔎 Abrir Ficha",
+            key=f"{key_prefix}_btn",
+            width="stretch",
+            on_click=_ir_a_ficha_jugador,
+            args=(jug_ir,),
+        )
+
+
+def _render_glosario_jugadores():
+    with st.expander("📖 Glosario rápido de métricas"):
+        st.markdown("""
+        * **xG (Goles Esperados):** Probabilidad estadística (de `0` a `1`) de que un remate termine en gol según distancia, ángulo, parte del cuerpo y tipo de jugada.
+        * **xGOT (xG al Arco):** Calidad de la ejecución de los remates que efectivamente fueron entre los tres palos (mide qué tan difícil fue la definición para el arquero).
+        * **xA (Asistencias Esperadas):** Probabilidad de que un pase previo a un remate se convierta en asistencia según la peligrosidad de la ocasión generada.
+        * **Cada 90' (`p90`):** Estadística normalizada cada 90 minutos reales jugados en cancha, ideal para comparar titulares contra suplentes con menos rodaje.
+        * **Goles Evitados (Arqueros):** Diferencia entre los goles esperados al arco recibidos (`xGOT`) y los goles reales concedidos. Un valor positivo indica atajadas por encima de lo esperado.
+        * **Nota SofaScore:** Calificación algorítmica del partido en escala `1` a `10` basada en el impacto positivo y negativo de cada intervención.
+        """)
+
+
 @st.cache_data(show_spinner=False)
 def _cargar_tiros_fallback() -> pd.DataFrame:
     ruta = Path(__file__).resolve().parents[1] / "datos" / "tiros.parquet"
@@ -164,9 +213,6 @@ def _agregar_jugadores(df_jug: pd.DataFrame) -> pd.DataFrame:
         Ataj_Area=("savedShotsFromInsideTheBox", "sum"),
         Pen_Ataj=("penaltySave", "sum"),
         Salidas_Arq=("accurateKeeperSweeper", "sum"),
-        Km_Tot=("kilometersCovered", "sum"),
-        Vel_Max=("topSpeed", "max"),
-        Sprints=("numberOfSprints", "sum"),
     )
 
     cols_df = set(d.columns) | {"titular", "tiros_calc"}
@@ -191,7 +237,17 @@ def _agregar_jugadores(df_jug: pd.DataFrame) -> pd.DataFrame:
     return res
 
 
-def _render_rendimiento_partido(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, tiene_avanzadas: bool, tiene_fisico: bool):
+def _formatear_etiqueta_partido_jug(r: pd.Series) -> str:
+    fecha_str = pd.to_datetime(r["fecha_dt"]).strftime("%d/%m") if pd.notna(r.get("fecha_dt")) else ""
+    inst = f"F{int(r['ronda_num'])}" if not bool(r.get("es_playoff", False)) and pd.notna(r.get("ronda_num")) else str(r.get("fase", ""))
+    pref = f"{inst} · " if inst else ""
+    rival = r.get("rival", "Rival")
+    mins = int(round(r.get("minutesPlayed", 0)))
+    nota = f" · Nota {r['rating']:.1f}" if pd.notna(r.get("rating")) else ""
+    return f"{pref}{fecha_str} vs {rival} ({mins}'{nota})"
+
+
+def _render_rendimiento_partido(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, tiene_avanzadas: bool):
     d_act = df_jug[df_jug["minutesPlayed"].fillna(0) > 0].copy()
     if d_act.empty:
         st.info("No hay partidos con minutos registrados para el período seleccionado.")
@@ -202,6 +258,9 @@ def _render_rendimiento_partido(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, ti
 
     c1, c2, c3 = st.columns([1.3, 1.5, 2.2])
     equipos = sorted(d_act["equipo"].dropna().unique().tolist())
+    if equipos and st.session_state.get("rend_part_eq") not in equipos:
+        st.session_state["rend_part_eq"] = equipos[0]
+
     with c1:
         eq_sel = st.selectbox("Club", equipos, key="rend_part_eq")
 
@@ -212,6 +271,9 @@ def _render_rendimiento_partido(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, ti
         .sort_values("minutesPlayed", ascending=False)["jugador"]
         .tolist()
     )
+    if jugadores and st.session_state.get("rend_part_jug") not in jugadores:
+        st.session_state["rend_part_jug"] = jugadores[0]
+
     with c2:
         jug_sel = st.selectbox("Jugador", jugadores, key="rend_part_jug")
 
@@ -220,15 +282,12 @@ def _render_rendimiento_partido(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, ti
     opciones_partido = ["Todos los partidos del período"]
     mapa_mid = {}
     for _, r in sub_jug.iterrows():
-        fecha_str = pd.to_datetime(r["fecha_dt"]).strftime("%d/%m") if pd.notna(r.get("fecha_dt")) else ""
-        inst = f"F{int(r['ronda_num'])}" if not bool(r.get("es_playoff", False)) and pd.notna(r.get("ronda_num")) else str(r.get("fase", ""))
-        pref = f"{inst} · " if inst else ""
-        rival = r.get("rival", "Rival")
-        mins = int(round(r.get("minutesPlayed", 0)))
-        nota = f" · Nota {r['rating']:.1f}" if pd.notna(r.get("rating")) else ""
-        etiqueta = f"{pref}{fecha_str} vs {rival} ({mins}'{nota})"
+        etiqueta = _formatear_etiqueta_partido_jug(r)
         opciones_partido.append(etiqueta)
         mapa_mid[etiqueta] = r["match_id"]
+
+    if st.session_state.get("rend_part_match") not in opciones_partido:
+        st.session_state["rend_part_match"] = opciones_partido[0]
 
     with c3:
         partido_sel = st.selectbox("Partido", opciones_partido, key="rend_part_match")
@@ -386,7 +445,7 @@ def _render_rendimiento_partido(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, ti
         _tabla_bloque(filas_cre)
 
     with b3:
-        st.caption("🛡️ DEFENSA, DUELOS Y FÍSICO")
+        st.caption("🛡️ DEFENSA Y DUELOS")
         filas_def = [
             ("Recuperaciones", str(_s_int("ballRecovery"))),
             ("Quites ganados", str(_s_int("wonTackle"))),
@@ -395,12 +454,6 @@ def _render_rendimiento_partido(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, ti
             ("Duelos en el suelo", f"{duelos_g}/{duelos_tot} ({duelos_pct:.1f}%)"),
             ("Duelos aéreos", f"{aereos_g}/{aereos_tot} ({aereos_pct:.1f}%)"),
         ]
-        if tiene_fisico:
-            filas_def.append(("Distancia recorrida", f"{_s_flt('kilometersCovered'):.2f} km"))
-            if "topSpeed" in df_p.columns and df_p["topSpeed"].notna().any():
-                filas_def.append(("Velocidad máxima", f"{float(df_p['topSpeed'].max()):.1f} km/h"))
-            if "numberOfSprints" in df_p.columns and df_p["numberOfSprints"].notna().any():
-                filas_def.append(("Sprints", str(_s_int("numberOfSprints"))))
         _tabla_bloque(filas_def)
 
     # ── Desglose de Remates ──
@@ -451,7 +504,6 @@ def _render_rendimiento_partido(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, ti
             else "-"
         )
 
-        # Unir rival/fecha si está viendo todos los partidos
         if mid_sel is None and "match_id" in t_sub.columns:
             mapa_part = sub_jug.set_index("match_id")[["fecha", "rival"]].to_dict("index")
             t_sub["Partido"] = t_sub["match_id"].map(
@@ -521,7 +573,6 @@ def render_jugadores(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, periodo: str 
         return
 
     tiene_avanzadas = (periodo == "Torneo Clausura") and (df_jug["expectedGoals"].fillna(0).sum() > 0)
-    tiene_fisico = ("kilometersCovered" in df_jug.columns) and (df_jug["kilometersCovered"].fillna(0).sum() > 0)
 
     # Sub-navegación con carga diferida (solo ejecuta la vista activa)
     sub_vista = st.radio(
@@ -552,8 +603,6 @@ def render_jugadores(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, periodo: str 
             pos_sel = st.selectbox("Posición", posiciones_disp, key="jug_pos_filt")
         with f3:
             categorias = ["General (Todas)", "Ataque", "Creación y Pases", "Defensa y Duelos", "Arqueros"]
-            if tiene_fisico:
-                categorias.append("Físico")
             cat_sel = st.selectbox("Bloque de métricas", categorias, key="jug_cat_filt")
         with f4:
             modo_val = st.radio("Valores", ["Totales", "Cada 90'"], horizontal=True, key="jug_modo_val")
@@ -569,20 +618,30 @@ def render_jugadores(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, periodo: str 
         else:
             max_min = int(df_agg["Minutos"].max())
             default_min = 0 if club_sel != "Todos los equipos" else min(270, max_min // 3)
-            min_minutos = st.slider("Mínimo de minutos jugados", 0, max(10, max_min), default_min, step=30)
+            min_minutos = st.slider(
+                "Mínimo de minutos jugados",
+                0,
+                max(10, max_min),
+                default_min,
+                step=30,
+                help="Para rankings 'Cada 90'' se recomienda filtrar al menos 270 minutos (3 partidos completos) para evitar valores extremos por muestras chicas.",
+            )
+
+            es_p90 = modo_val == "Cada 90'"
+            if es_p90 and min_minutos < 180 and club_sel == "Todos los equipos":
+                st.caption("💡 Tip: en modo **Cada 90'**, subí el mínimo a 180'-270' para evitar que suplentes con pocos minutos lideren el ranking.")
 
             df_f = df_agg[df_agg["Minutos"] >= min_minutos].copy()
             if df_f.empty:
                 st.warning("Ningún jugador supera ese mínimo de minutos. Bajá el deslizador.")
             else:
-                es_p90 = modo_val == "Cada 90'"
                 if es_p90:
                     cols_escalar = [
                         "Goles", "Asist", "xG", "xGOT", "xA", "Tiros", "Al_Arco",
                         "Oc_Falladas", "Oc_Creadas", "Pases_Clave", "Pases_Ok",
                         "Regates_Ok", "Dist_Prog", "Cond_Prog", "Quites_Ok",
                         "Intercep", "Recup", "Despejes", "Perdidas", "Atajadas",
-                        "Goles_Rec", "Goles_Evit", "Ataj_Area", "Km_Tot", "Sprints",
+                        "Goles_Rec", "Goles_Evit", "Ataj_Area",
                     ]
                     for c in cols_escalar:
                         if c in df_f.columns:
@@ -604,8 +663,6 @@ def render_jugadores(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, periodo: str 
                             "Quites_Ok", "Intercep", "Recup", "Despejes", "Duelos_Pct", "Aereos_Pct",
                             "Atajadas", "Goles_Rec",
                         ]
-                    if tiene_fisico:
-                        extra += ["Km_Tot", "Vel_Max", "Sprints"]
                     orden_col = "Nota"
                 elif cat_sel == "Ataque":
                     extra = ["Goles", "xG", "xGOT", "Tiros", "Al_Arco", "Oc_Falladas"] if tiene_avanzadas else ["Goles", "Tiros", "Al_Arco", "Oc_Falladas"]
@@ -616,13 +673,10 @@ def render_jugadores(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, periodo: str 
                 elif cat_sel == "Defensa y Duelos":
                     extra = ["Quites_Ok", "Intercep", "Recup", "Despejes", "Duelos_Pct", "Aereos_Pct", "Perdidas"]
                     orden_col = "Recup"
-                elif cat_sel == "Arqueros":
+                else:
                     df_f = df_f[df_f["Atajadas"] > 0] if pos_sel == "Todas las posiciones" else df_f
                     extra = ["Atajadas", "Goles_Rec", "Goles_Evit", "Pen_Ataj"] if tiene_avanzadas else ["Atajadas", "Goles_Rec", "Pen_Ataj"]
                     orden_col = "Atajadas"
-                else:
-                    extra = ["Km_Tot", "Vel_Max", "Sprints"]
-                    orden_col = "Km_Tot"
 
                 cols_finales = [c for c in (base_cols + extra) if c in df_f.columns]
                 df_show = df_f[cols_finales].sort_values([orden_col, "Minutos"], ascending=[False, False]).reset_index(drop=True)
@@ -635,7 +689,6 @@ def render_jugadores(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, periodo: str 
                     "Quites_Ok": "Quites", "Intercep": "Intercep.", "Recup": "Recuperac.",
                     "Duelos_Pct": "Duelos %", "Aereos_Pct": "Aéreos %", "Goles_Rec": "Goles Rec.",
                     "Goles_Evit": "Goles Evit.", "Pen_Ataj": "Pen. Ataj.",
-                    "Km_Tot": "Km", "Vel_Max": "Vel. Máx (km/h)",
                 }
                 df_show = df_show.rename(columns=renombres)
                 df_show.insert(
@@ -644,18 +697,20 @@ def render_jugadores(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, periodo: str 
                     df_show["Equipo"].map(lambda x: escudo_base64(_club_actual(x))),
                 )
 
-                fmt = {"Nota": "{:.2f}", "Pases %": "{:.1f}%", "Duelos %": "{:.1f}%", "Aéreos %": "{:.1f}%", "Vel. Máx (km/h)": "{:.1f}"}
-                cols_dec = ["xG", "xGOT", "xA", "Goles Evit.", "Km"]
+                fmt = {"Nota": "{:.2f}", "Pases %": "{:.1f}%", "Duelos %": "{:.1f}%", "Aéreos %": "{:.1f}%"}
+                cols_dec = ["xG", "xGOT", "xA", "Goles Evit."]
                 if es_p90:
-                    cols_dec += ["Goles", "Asist", "Tiros", "Al Arco", "Oc. Falladas", "Oc. Creadas", "Pases Clave", "Cond. Prog.", "Regates", "Pérdidas", "Quites", "Intercep.", "Recuperac.", "Despejes", "Atajadas", "Goles Rec.", "Sprints"]
+                    cols_dec += ["Goles", "Asist", "Tiros", "Al Arco", "Oc. Falladas", "Oc. Creadas", "Pases Clave", "Cond. Prog.", "Regates", "Pérdidas", "Quites", "Intercep.", "Recuperac.", "Despejes", "Atajadas", "Goles Rec."]
                 else:
-                    for ci in ["Goles", "Asist", "Tiros", "Al Arco", "Oc. Falladas", "Oc. Creadas", "Pases Clave", "Cond. Prog.", "Regates", "Pérdidas", "Quites", "Intercep.", "Recuperac.", "Despejes", "Atajadas", "Goles Rec.", "Pen. Ataj.", "Sprints"]:
+                    for ci in ["Goles", "Asist", "Tiros", "Al Arco", "Oc. Falladas", "Oc. Creadas", "Pases Clave", "Cond. Prog.", "Regates", "Pérdidas", "Quites", "Intercep.", "Recuperac.", "Despejes", "Atajadas", "Goles Rec.", "Pen. Ataj."]:
                         if ci in df_show.columns:
                             df_show[ci] = df_show[ci].fillna(0).round(0).astype(int)
 
                 for cd in cols_dec:
                     if cd in df_show.columns:
                         fmt[cd] = "{:.2f}"
+
+                _barra_acceso_ficha(df_show["Jugador"].tolist(), key_prefix="rank_ficha_rapida")
 
                 st.dataframe(
                     df_show.style.format(fmt)
@@ -673,12 +728,19 @@ def render_jugadores(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, periodo: str 
     # =========================================================================
     elif sub_vista == "🔎 Ficha de Jugador":
         cf1, cf2 = st.columns([1.5, 2])
+        equipos_ficha_opts = ["Todos"] + sorted(df_jug["equipo"].dropna().unique())
+        if st.session_state.get("ficha_jug_eq") not in equipos_ficha_opts:
+            st.session_state["ficha_jug_eq"] = "Todos"
+
         with cf1:
-            eq_ficha = st.selectbox("Filtrar por club", ["Todos"] + sorted(df_jug["equipo"].dropna().unique()), key="ficha_jug_eq")
+            eq_ficha = st.selectbox("Filtrar por club", equipos_ficha_opts, key="ficha_jug_eq")
         d_pool = df_jug if eq_ficha == "Todos" else df_jug[df_jug["equipo"] == eq_ficha]
         d_pool = d_pool[d_pool["minutesPlayed"].fillna(0) > 0]
 
         jugadores_lista = sorted(d_pool["jugador"].dropna().unique())
+        if jugadores_lista and st.session_state.get("ficha_jug_nombre") not in jugadores_lista:
+            st.session_state["ficha_jug_nombre"] = jugadores_lista[0]
+
         with cf2:
             jug_sel = st.selectbox("Seleccioná un jugador", jugadores_lista, key="ficha_jug_nombre")
 
@@ -809,9 +871,30 @@ def render_jugadores(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, periodo: str 
                     df_c["Goles"] = df_c["Goles"].astype(int)
                     st.dataframe(df_c.style.format({"xG": "{:.2f}"}), hide_index=True, width="stretch")
 
-            # Registro partido a partido adaptado por posición
+            # Registro partido a partido + Conector directo a Rendimiento por Partido
             st.markdown('<div class="section-header">Registro Partido a Partido</div>', unsafe_allow_html=True)
             dj["Instancia"] = dj.apply(lambda r: f"Fecha {int(r['ronda_num'])}" if not bool(r.get("es_playoff", False)) else str(r["fase"]), axis=1)
+            dj["Label_Rendimiento"] = dj.apply(_formatear_etiqueta_partido_jug, axis=1)
+
+            dj_rev = dj.iloc[::-1].reset_index(drop=True)
+            if not dj_rev.empty:
+                c_rs, c_rb = st.columns([3.5, 1])
+                with c_rs:
+                    part_rend_sel = st.selectbox(
+                        "Abrir desglose completo y remates de un partido",
+                        dj_rev["Label_Rendimiento"].tolist(),
+                        key=f"ficha_jug_ir_rend_{jug_sel}",
+                        label_visibility="collapsed",
+                    )
+                fila_rend = dj_rev[dj_rev["Label_Rendimiento"] == part_rend_sel].iloc[0]
+                with c_rb:
+                    st.button(
+                        "🎯 Ver en Partido",
+                        key=f"ficha_jug_ir_rend_btn_{jug_sel}",
+                        width="stretch",
+                        on_click=_ir_a_rendimiento_partido,
+                        args=(fila_rend["equipo"], jug_sel, part_rend_sel),
+                    )
 
             base_log = ["fecha", "torneo", "Instancia", "equipo", "rival", "minutesPlayed", "rating"]
             if "arquero" in pos_jugador.lower():
@@ -831,8 +914,8 @@ def render_jugadores(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, periodo: str 
                     pos_cols.insert(2, "expectedGoalsOnTarget")
                     pos_cols.insert(5, "expectedAssists")
 
-            cols_log = [c for c in (base_log + pos_cols) if c in dj.columns]
-            log_show = dj[cols_log].copy()
+            cols_log = [c for c in (base_log + pos_cols) if c in dj_rev.columns]
+            log_show = dj_rev[cols_log].copy()
 
             cols_enteras_log = [
                 "minutesPlayed", "saves", "goalsConceded", "accuratePass",
@@ -862,7 +945,7 @@ def render_jugadores(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, periodo: str 
                 if dec_c in log_show.columns:
                     fmt_log[dec_c] = "{:.2f}"
 
-            log_show_tbl = agregar_columna_escudo(log_show.iloc[::-1].reset_index(drop=True), col_equipo="Rival")
+            log_show_tbl = agregar_columna_escudo(log_show, col_equipo="Rival")
             st.dataframe(
                 log_show_tbl.style.format(fmt_log),
                 column_config={"Escudo": config_columna_escudo("")},
@@ -874,7 +957,7 @@ def render_jugadores(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, periodo: str 
     # VISTA 3: RENDIMIENTO POR PARTIDO (ESTADÍSTICAS COMPLETAS + REMATES)
     # =========================================================================
     elif sub_vista == "🎯 Rendimiento por Partido":
-        _render_rendimiento_partido(df_jug, df_tiros, tiene_avanzadas, tiene_fisico)
+        _render_rendimiento_partido(df_jug, df_tiros, tiene_avanzadas)
 
     # =========================================================================
     # VISTA 4: COMPARADOR
@@ -1045,7 +1128,14 @@ def render_jugadores(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, periodo: str 
 
         tiene_xg_fecha = df_f_act["expectedGoals"].fillna(0).sum() > 0
 
-        def _tabla_top_posicion(sub_pos: pd.DataFrame, cols_extra: list, renombres_extra: dict, cols_decimales: list, cols_pct: list):
+        def _tabla_top_posicion(
+            sub_pos: pd.DataFrame,
+            cols_extra: list,
+            renombres_extra: dict,
+            cols_decimales: list,
+            cols_pct: list,
+            key_prefix: str,
+        ):
             if sub_pos.empty:
                 return None
             top = sub_pos.sort_values(by=["rating", "Min"], ascending=[False, False]).reset_index(drop=True)
@@ -1065,6 +1155,8 @@ def render_jugadores(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, periodo: str 
                     fmt_pos[col_name] = "{:+.2f}" if col_name == "Goles Evit." else "{:.2f}"
                 else:
                     out[col_name] = out[col_name].fillna(0).round(0).astype(int)
+
+            _barra_acceso_ficha(out["Jugador"].tolist(), key_prefix=key_prefix)
 
             alto_visible = min(392, (len(out) * 35) + 42)
             st.dataframe(
@@ -1089,6 +1181,7 @@ def render_jugadores(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, periodo: str 
             {"saves": "Atajadas", "goalsConceded": "Goles Rec.", "goalsPrevented": "Goles Evit."},
             ["Goles Evit."],
             [],
+            key_prefix="lid_arq_ficha",
         )
 
         st.markdown('<div class="section-header">🛡️ Defensores de la Fecha</div>', unsafe_allow_html=True)
@@ -1104,6 +1197,7 @@ def render_jugadores(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, periodo: str 
             },
             [],
             ["Duelos %", "Pases %"],
+            key_prefix="lid_def_ficha",
         )
 
         st.markdown('<div class="section-header">🎯 Mediocampistas de la Fecha</div>', unsafe_allow_html=True)
@@ -1121,6 +1215,7 @@ def render_jugadores(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, periodo: str 
             },
             ["xA"],
             ["Pases %"],
+            key_prefix="lid_med_ficha",
         )
 
         st.markdown('<div class="section-header">⚽ Delanteros de la Fecha</div>', unsafe_allow_html=True)
@@ -1140,4 +1235,7 @@ def render_jugadores(df_jug: pd.DataFrame, df_tiros: pd.DataFrame, periodo: str 
             },
             ["xG", "xGOT", "xA"],
             [],
+            key_prefix="lid_del_ficha",
         )
+
+    _render_glosario_jugadores()
