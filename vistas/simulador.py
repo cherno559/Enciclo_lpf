@@ -41,19 +41,98 @@ def _preparar_motor(df_eq: pd.DataFrame, df_jug: pd.DataFrame):
     return df_largo, elos, tabla, rho
 
 
-def _badge_impacto_xi(mod_xi: dict) -> str:
+def _resumen_tactico_xi(titulares: list[str] | None, plantel: pd.DataFrame) -> tuple[str, list[str]]:
+    """Calcula conteo ARQ-DEF-MED-DEL y alertas tácticas sin restringir esquemas."""
+    if not titulares or plantel.empty:
+        return "", []
+
+    pos_map = plantel.set_index("jugador")["Posicion"].to_dict() if "Posicion" in plantel.columns else {}
+    conteo = {"ARQ": 0, "DEF": 0, "MED": 0, "DEL": 0}
+    for j in titulares:
+        p = str(pos_map.get(j, "")).lower()
+        if any(k in p for k in ("arquero", "goalkeeper", "gk")):
+            conteo["ARQ"] += 1
+        elif any(k in p for k in ("defensor", "defender", "def")):
+            conteo["DEF"] += 1
+        elif any(k in p for k in ("mediocampista", "midfielder", "med")):
+            conteo["MED"] += 1
+        elif any(k in p for k in ("delantero", "forward", "del")):
+            conteo["DEL"] += 1
+
+    alertas = []
+    if conteo["ARQ"] == 0:
+        alertas.append("sin arquero")
+    elif conteo["ARQ"] > 1:
+        alertas.append(f"{conteo['ARQ']} arqueros")
+
+    n = len(titulares)
+    if n == 11 and conteo["ARQ"] == 1:
+        esquema = f"{conteo['DEF']}-{conteo['MED']}-{conteo['DEL']}"
+        return f"Esquema {esquema}", alertas
+
+    detalle = f"{conteo['ARQ']} ARQ · {conteo['DEF']} DEF · {conteo['MED']} MED · {conteo['DEL']} DEL"
+    return detalle, alertas
+
+
+def _badge_impacto_xi(mod_xi: dict, titulares: list[str] | None = None, plantel: pd.DataFrame | None = None) -> str:
+    detalle_tac, alertas_tac = _resumen_tactico_xi(titulares, plantel if plantel is not None else pd.DataFrame())
+    tac_txt = f" · <span style='color:#ececf0;'>{detalle_tac}</span>" if detalle_tac else ""
+    alerta_txt = (
+        f" <span style='color:#f59e0b; font-weight:700;'>(⚠️ {', '.join(alertas_tac)})</span>"
+        if alertas_tac
+        else ""
+    )
+
     if not mod_xi.get("activo"):
         n = mod_xi.get("n_sel", 0)
-        return f"<span style='color:#f59e0b; font-size:0.78rem;'>⚠️ {n}/11 elegidos (completá 11 para aplicar ajuste)</span>"
+        return (
+            f"<span style='color:#f59e0b; font-size:0.78rem;'>"
+            f"⚠️ {n}/11 elegidos (completá 11 para aplicar ajuste){tac_txt}{alerta_txt}</span>"
+        )
+
     d_atk = (mod_xi["mult_atk"] - 1.0) * 100
     d_def = (mod_xi["mult_def"] - 1.0) * 100
     c_atk = "#10b981" if d_atk >= 0 else "#ef4444"
     c_def = "#10b981" if d_def >= 0 else "#ef4444"
     return (
         f"<span style='color:#a0a0a8; font-size:0.78rem;'>"
-        f"✅ <b>11/11 confirmados</b> · Ataque: <b style='color:{c_atk}'>{d_atk:+.1f}%</b> · "
+        f"✅ <b>11/11</b>{tac_txt}{alerta_txt} · Ataque: <b style='color:{c_atk}'>{d_atk:+.1f}%</b> · "
         f"Defensa: <b style='color:{c_def}'>{d_def:+.1f}%</b></span>"
     )
+
+
+def _generar_resumen_simulacion(
+    eq_local: str,
+    eq_vis: str,
+    sim: dict,
+    df_proy_jug: pd.DataFrame,
+    neutral: bool = False,
+) -> str:
+    top_m = sim["top_marcadores"].iloc[0]
+    marc_txt = f"{top_m['Marcador']} ({float(top_m['Probabilidad']):.1f}%)"
+    cond_txt = " (Cancha neutral)" if neutral else ""
+
+    lineas = [
+        f"🔮 Simulación LPF: {eq_local} vs {eq_vis}{cond_txt}",
+        "",
+        f"🏠 {eq_local}: {sim['p_loc']:.1f}%",
+        f"🤝 Empate: {sim['p_emp']:.1f}%",
+        f"✈️ {eq_vis}: {sim['p_vis']:.1f}%",
+        "",
+        f"📊 Goles esperados (λ): {sim['lam_loc']:.2f} - {sim['lam_vis']:.2f}",
+        f"🎯 Marcador más probable: {marc_txt}",
+        f"🧤 Valla invicta: {eq_local} {sim['valla_loc']:.0f}% · {eq_vis} {sim['valla_vis']:.0f}%",
+        f"⚽ Ambos marcan: {sim['ambos_marcan']:.1f}% · +2.5 goles: {sim['over_25']:.1f}%",
+    ]
+
+    if not df_proy_jug.empty:
+        top_g = df_proy_jug.sort_values("Prob_Gol", ascending=False).head(3)
+        figs = [f"{r['Jugador']} ({r['Prob_Gol']:.0f}%)" for _, r in top_g.iterrows()]
+        if figs:
+            lineas.append(f"🔥 Mayor prob. de gol: {' · '.join(figs)}")
+
+    lineas.extend(["", "📲 Simulado en Enciclo LPF · enciclolpf.streamlit.app"])
+    return "\n".join(lineas)
 
 
 def render_simulador(df_eq: pd.DataFrame, df_jug: pd.DataFrame, periodo: str = "Temporada Completa"):
@@ -71,7 +150,7 @@ def render_simulador(df_eq: pd.DataFrame, df_jug: pd.DataFrame, periodo: str = "
         * **Es un modelo probabilístico, no una bola de cristal:** El simulador estima escenarios posibles a partir del rendimiento histórico (`xG`, goles, fuerza del rival, localía y Elo dinámico). Un 65% de victoria significa que, jugando ese partido 100 veces en condiciones similares, ese equipo ganaría ~65 veces, pero el fútbol siempre conserva margen para la sorpresa.
         * **Cómo leer `λ` (Goles Esperados del cruce):** Representa el promedio de goles proyectado para cada equipo en este enfrentamiento específico. A partir de `λ` se calcula toda la matriz de marcadores exactos (`0-0`, `1-0`, `2-1`, etc.) y las probabilidades `1X2`.
         * **11 Titular:** Por defecto carga la última formación utilizada por cada club. Si cambiás nombres (por lesiones, suspensiones o rotación), el motor recalcula automáticamente el peso ofensivo y defensivo del equipo.
-        * **Penalización extra (%):** Es un **ajuste manual de contexto**. Usalo cuando un equipo llega disminuido por factores que los datos previos no ven (rotación masiva por copa internacional, bajas sensibles de último momento, desgaste de viaje o contexto adverso). Subir la barra reduce su expectativa de gol y aumenta la del rival.
+        * **Penalización extra (%):** Es un **ajuste manual de contexto**. Usalo cuando un equipo llega disminuido por factores que los datos previos no ven (rotación masiva por copa internacional, bajas sensibles de último momento, desgaste de viaje o contexto adverso). Subir la barra reduce su expectativa de gol y aumenta el del rival.
         * **Peso forma reciente:** Controla cuánto pesan las últimas fechas frente al rendimiento acumulado del año (*Agresivo* reacciona rápido a rachas; *Conservador* prioriza la muestra larga).
         """)
 
@@ -218,12 +297,12 @@ def render_simulador(df_eq: pd.DataFrame, df_jug: pd.DataFrame, periodo: str = "
         titulares_vis=titulares_vis,
     )
 
-    # Mostrar impacto del 11 elegido en tiempo real
+    # Mostrar impacto del 11 elegido + estructura táctica en tiempo real
     ic1, ic2 = st.columns(2)
     with ic1:
-        st.markdown(_badge_impacto_xi(sim["mod_xi_loc"]), unsafe_allow_html=True)
+        st.markdown(_badge_impacto_xi(sim["mod_xi_loc"], titulares_loc, plantel_loc), unsafe_allow_html=True)
     with ic2:
-        st.markdown(_badge_impacto_xi(sim["mod_xi_vis"]), unsafe_allow_html=True)
+        st.markdown(_badge_impacto_xi(sim["mod_xi_vis"], titulares_vis, plantel_vis), unsafe_allow_html=True)
 
     esc_loc_html = img_escudo_html(eq_local, 34)
     esc_vis_html = img_escudo_html(eq_vis, 34)
@@ -342,6 +421,22 @@ def render_simulador(df_eq: pd.DataFrame, df_jug: pd.DataFrame, periodo: str = "
         st.plotly_chart(fig_hm, width="stretch")
 
     # ── 3. PROYECCIÓN DE MÉTRICAS DEL PARTIDO Y JUGADORES ──
+    df_proy_jug = proyectar_jugadores_partido(
+        df_jug=df_jug,
+        eq_local=eq_local,
+        eq_visitante=eq_vis,
+        lam_loc=sim["lam_loc"],
+        lam_vis=sim["lam_vis"],
+        titulares_loc=titulares_loc,
+        titulares_vis=titulares_vis,
+    )
+
+    with st.expander("📲 Copiar pronóstico de la simulación para WhatsApp / X"):
+        st.code(
+            _generar_resumen_simulacion(eq_local, eq_vis, sim, df_proy_jug, neutral=neutral),
+            language=None,
+        )
+
     st.markdown("---")
     tab_jug_proy, tab_met_proy = st.tabs([
         "🌟 Jugadores Proyectados y Posibles Figuras",
@@ -358,15 +453,6 @@ def render_simulador(df_eq: pd.DataFrame, df_jug: pd.DataFrame, periodo: str = "
 
     with tab_jug_proy:
         st.caption("Estimación ajustada al 11 titular confirmado y a los goles esperados (λ) de cada equipo en este cruce.")
-        df_proy_jug = proyectar_jugadores_partido(
-            df_jug=df_jug,
-            eq_local=eq_local,
-            eq_visitante=eq_vis,
-            lam_loc=sim["lam_loc"],
-            lam_vis=sim["lam_vis"],
-            titulares_loc=titulares_loc,
-            titulares_vis=titulares_vis,
-        )
 
         if df_proy_jug.empty:
             st.info("No hay suficientes registros individuales recientes para proyectar jugadores en este cruce.")
