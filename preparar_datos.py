@@ -135,6 +135,18 @@ def limpiar_equipos(df: pd.DataFrame, df_jug: pd.DataFrame | None = None) -> pd.
     df["diferencia_gol"] = df["goles_favor"] - df["goles_contra"]
     df["valla_invicta"] = (df["goles_contra"] == 0).astype(int)
 
+    # Rellenar con 0 métricas acumulables de equipo que SofaScore omite en el JSON cuando valen 0
+    cols_cero_eq = [
+        "total_shots", "shots_on_goal", "shots_off_goal", "blocked_scoring_attempt",
+        "total_shots_inside_box", "total_shots_outside_box", "big_chance_created",
+        "big_chance_missed", "corner_kicks", "offsides", "fouls", "yellow_cards",
+        "red_cards", "goalkeeper_saves", "total_tackle", "won_tackle",
+        "interception_won", "total_clearance", "passes", "accurate_passes",
+    ]
+    for c in cols_cero_eq:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
+
     # Porcentajes de precisión calculados sobre totales
     pares_pct = [
         ("pct_pases", "accurate_passes", "passes"),

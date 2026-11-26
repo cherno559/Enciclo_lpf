@@ -137,24 +137,31 @@ def adaptar_df_enciclo_a_motor(df_eq: pd.DataFrame, df_jug: pd.DataFrame = None)
     d["_fase"] = np.where(d["es_playoff"].fillna(False), "Playoff", "Regular")
     d["_nfecha"] = pd.to_numeric(d.get("ronda_num", pd.Series(1, index=d.index)), errors="coerce").fillna(1).astype(int)
 
-    goles_s = _col(
-        d,
-        ["goles", "goals", "gf", "goles_favor", "goles_marcados", "score", "marcador"],
-        default=np.nan,
-        excluir_substrings=["contra", "rec", "esp", "xg", "evit", "pen", "diff", "dif"],
+    def _serie_eq_o_jug(cands_eq: list, cands_jug: list, excluir: list = None, default: float = 0.0) -> pd.Series:
+        s = _col(d, cands_eq, default=np.nan, excluir_substrings=excluir)
+        if (s.isna().all() or s.fillna(0).sum() == 0) and df_jug is not None and not df_jug.empty:
+            cols_j_lower = {c.lower(): c for c in df_jug.columns}
+            col_j = next((cols_j_lower[c.lower()] for c in cands_jug if c.lower() in cols_j_lower), None)
+            if col_j is not None:
+                tmp_j = df_jug[["match_id", "equipo", col_j]].copy()
+                tmp_j[col_j] = pd.to_numeric(tmp_j[col_j], errors="coerce").fillna(0.0)
+                mapa_j = tmp_j.groupby(["match_id", "equipo"])[col_j].sum().to_dict()
+                s = pd.Series(
+                    [float(mapa_j.get((m, e), default)) for m, e in zip(d["match_id"], d["equipo"])],
+                    index=d.index,
+                )
+        return s.fillna(default)
+
+    d["_goles"] = _serie_eq_o_jug(
+        ["goles_favor", "goles", "goals", "gf"],
+        ["goals"],
+        excluir=["contra", "rec", "esp", "xg", "evit", "pen", "diff", "dif"],
+        default=0.0,
     )
-
-    if (goles_s.isna().all() or goles_s.fillna(0).sum() == 0) and df_jug is not None and not df_jug.empty:
-        col_g_jug = next((c for c in ["goals", "goles"] if c in df_jug.columns), None)
-        if col_g_jug:
-            g_map = df_jug.groupby(["match_id", "equipo"])[col_g_jug].sum().to_dict()
-            goles_s = pd.Series([float(g_map.get((m, e), 0.0)) for m, e in zip(d["match_id"], d["equipo"])], index=d.index)
-
-    d["_goles"] = goles_s.fillna(0.0)
 
     xg_raw = _col(
         d,
-        ["expectedGoals", "xg", "xg_favor", "goles_esperados"],
+        ["expected_goals", "expectedGoals", "xg", "xg_favor"],
         default=np.nan,
         excluir_substrings=["contra", "rec", "xgot", "target", "arco", "diff", "dif"],
     )
@@ -164,17 +171,76 @@ def adaptar_df_enciclo_a_motor(df_eq: pd.DataFrame, df_jug: pd.DataFrame = None)
             xg_map = df_jug.groupby(["match_id", "equipo"])[col_xg_jug].sum().to_dict()
             xg_raw = pd.Series([float(xg_map.get((m, e), np.nan)) for m, e in zip(d["match_id"], d["equipo"])], index=d.index)
 
-    tiros_tot = _col(
-        d,
-        ["totalShots", "tiros_totales", "tiros", "remates"],
-        0.0,
-        excluir_substrings=["contra", "rec", "arco", "area", "fuera", "bloq"],
+    tiros_tot = _serie_eq_o_jug(
+        ["total_shots", "totalShots", "tiros_totales", "tiros", "remates"],
+        ["totalShots"],
+        excluir=["contra", "rec", "arco", "area", "fuera", "bloq", "target", "inside"],
     )
-    ocasiones = _col(
-        d,
-        ["bigChanceCreated", "ocasiones_claras", "ocasiones"],
-        0.0,
-        excluir_substrings=["contra", "rec", "fall", "miss"],
+    tiros_arco = _serie_eq_o_jug(
+        ["shots_on_goal", "on_target_scoring_attempt", "onTargetScoringAttempt", "al_arco", "tiros_arco"],
+        ["onTargetScoringAttempt"],
+        excluir=["contra", "rec"],
+    )
+    ocasiones = _serie_eq_o_jug(
+        ["big_chance_created", "bigChanceCreated", "ocasiones_claras", "ocasiones"],
+        ["bigChanceCreated"],
+        excluir=["contra", "rec", "fall", "miss", "missed"],
+    )
+    xgot_s = _serie_eq_o_jug(
+        ["expected_goals_on_target", "expectedGoalsOnTarget", "xgot", "xg_arco"],
+        ["expectedGoalsOnTarget", "xgot"],
+        excluir=["contra", "rec"],
+    )
+    corners_s = _serie_eq_o_jug(
+        ["corner_kicks", "cornerKicks", "corners", "tiros_esquina"],
+        ["cornerKicks", "corners"],
+        excluir=["contra", "rec"],
+    )
+    pases_tot = _serie_eq_o_jug(
+        ["passes", "total_pass", "totalPass", "pases_totales"],
+        ["totalPass"],
+        excluir=["contra", "prec", "acc", "pct", "clave", "key", "ultimo"],
+    )
+    pases_prec = _serie_eq_o_jug(
+        ["accurate_passes", "accurate_pass", "accuratePass", "pases_precisos"],
+        ["accuratePass"],
+        excluir=["contra", "pct"],
+    )
+    quites_s = _serie_eq_o_jug(
+        ["won_tackle", "wonTackle", "total_tackle", "quites", "entradas"],
+        ["wonTackle", "totalTackle"],
+        excluir=["contra", "pct", "porc", "percent"],
+    )
+    if quites_s.mean() > 35 and df_jug is not None and not df_jug.empty:
+        col_tk_j = next((c for c in ["wonTackle", "totalTackle"] if c in df_jug.columns), None)
+        if col_tk_j:
+            tk_map = df_jug.groupby(["match_id", "equipo"])[col_tk_j].sum().to_dict()
+            quites_s = pd.Series([float(tk_map.get((m, e), 0.0)) for m, e in zip(d["match_id"], d["equipo"])], index=d.index)
+
+    inter_s = _serie_eq_o_jug(
+        ["interception_won", "interceptions", "interceptionWon", "intercepciones"],
+        ["interceptionWon"],
+        excluir=["contra"],
+    )
+    desp_s = _serie_eq_o_jug(
+        ["total_clearance", "clearances", "totalClearance", "despejes"],
+        ["totalClearance"],
+        excluir=["contra"],
+    )
+    ataj_s = _serie_eq_o_jug(
+        ["goalkeeper_saves", "saves", "atajadas"],
+        ["saves"],
+        excluir=["contra"],
+    )
+    goles_evit_s = _serie_eq_o_jug(
+        ["goals_prevented", "goalsPrevented", "goles_evitados"],
+        ["goalsPrevented"],
+        excluir=["contra"],
+    )
+    tiros_area_s = _serie_eq_o_jug(
+        ["total_shots_inside_box", "shots_inside_box", "totalShotsInsideBox", "tiros_area"],
+        ["totalShotsInsideBox"],
+        excluir=["contra"],
     )
 
     penales_map = {}
@@ -194,7 +260,7 @@ def adaptar_df_enciclo_a_motor(df_eq: pd.DataFrame, df_jug: pd.DataFrame = None)
     d["_xg_model"] = np.where(xg_raw.notna() & (xg_raw > 0), xg_neto, xg_est)
     d["_xg_raw"] = xg_raw.fillna(pd.Series(xg_est, index=d.index))
 
-    pos_s = _col(d, ["ballPossession", "posesion", "possession"], 50.0, excluir_substrings=["contra", "rival"])
+    pos_s = _col(d, ["ball_possession", "ballPossession", "posesion", "possession"], 50.0, excluir_substrings=["contra", "rival"])
     if pos_s.max() <= 1.05 and pos_s.max() > 0:
         pos_s = pos_s * 100.0
     d["_posesion"] = pos_s
@@ -203,20 +269,20 @@ def adaptar_df_enciclo_a_motor(df_eq: pd.DataFrame, df_jug: pd.DataFrame = None)
         "Resultado": d["_goles"],
         "xG_Model": d["_xg_model"],
         "Goles esperados (xG)": d["_xg_raw"],
-        "xG al arco (xGOT)": _col(d, ["expectedGoalsOnTarget", "xgot", "xg_arco"], 0.0, excluir_substrings=["contra", "rec"]),
+        "xG al arco (xGOT)": xgot_s,
         "Tiros totales": tiros_tot,
-        "Tiros al arco": _col(d, ["onTargetScoringAttempt", "al_arco", "tiros_arco", "remates_arco"], 0.0, excluir_substrings=["contra", "rec"]),
+        "Tiros al arco": tiros_arco,
         "Ocasiones claras": ocasiones,
         "Posesión de balón": d["_posesion"],
-        "Córners": _col(d, ["cornerKicks", "corners", "tiros_esquina"], 0.0, excluir_substrings=["contra", "rec"]),
-        "Pases totales": _col(d, ["totalPass", "pases_totales", "pases"], 0.0, excluir_substrings=["contra", "prec", "acc", "pct"]),
-        "Pases precisos": _col(d, ["accuratePass", "pases_precisos"], 0.0, excluir_substrings=["contra", "pct"]),
-        "Quites": _col(d, ["wonTackle", "quites", "entradas"], 0.0, excluir_substrings=["contra"]),
-        "Intercepciones": _col(d, ["interceptionWon", "intercepciones"], 0.0, excluir_substrings=["contra"]),
-        "Despejes": _col(d, ["totalClearance", "despejes"], 0.0, excluir_substrings=["contra"]),
-        "Atajadas del arquero": _col(d, ["saves", "atajadas", "paradas"], 0.0, excluir_substrings=["contra"]),
-        "Goles evitados (arquero)": _col(d, ["goalsPrevented", "goles_evitados"], 0.0, excluir_substrings=["contra"]),
-        "Tiros dentro del área": _col(d, ["totalShotsInsideBox", "shotsInsideBox", "tiros_area"], 0.0, excluir_substrings=["contra"]),
+        "Córners": corners_s,
+        "Pases totales": pases_tot,
+        "Pases precisos": pases_prec,
+        "Quites": quites_s,
+        "Intercepciones": inter_s,
+        "Despejes": desp_s,
+        "Atajadas del arquero": ataj_s,
+        "Goles evitados (arquero)": goles_evit_s,
+        "Tiros dentro del área": tiros_area_s,
     }
 
     base_df = d[["match_id", "equipo", "_condicion", "_nfecha", "_fase", "torneo", "_categoria"]].copy()
