@@ -1,108 +1,60 @@
-# ⚽ Enciclo LPF — Analytics & Predictive Modeling Platform
+# ⚽ Enciclo LPF
 
-[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://enciclolpf.streamlit.app/)
-![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
-![Streamlit](https://img.shields.io/badge/Streamlit-1.35%2B-FF4B4B?logo=streamlit&logoColor=white)
-![Plotly](https://img.shields.io/badge/Plotly-Interactive_Charts-3F4F75?logo=plotly&logoColor=white)
+Plataforma web de analítica avanzada, scouting y simulación probabilística para la **Liga Profesional de Fútbol (LPF) 2026**, desarrollada en Python y Streamlit.
 
-Plataforma interactiva de **análisis estadístico, scouting y modelado predictivo** para la **Liga Profesional de Fútbol de Argentina (LPF)**, con cobertura de temporada completa (Torneo Apertura, Torneo Clausura y fases de Playoffs).
-
-🌐 **Aplicación en producción:** [enciclolpf.streamlit.app](https://enciclolpf.streamlit.app/)
+🔗 **App en vivo:** [enciclolpf.streamlit.app](https://enciclolpf.streamlit.app)
 
 ---
 
-## 📌 Características Principales
+## 📊 Módulos de la aplicación
 
 ### 1. 🏟️ Clubes y Estadísticas (`vistas/equipos.py`)
-* **Tablas de Liga Dinámicas:** Clasificación general y splits de local/visitante con alternancia entre **promedios por partido** y **totales acumulados**. Incluye un **Explorador Visual (Scatter Plot)** configurable para cruzar cualquier par de métricas ofensivas, defensivas o de posesión.
-* **Ficha de Club:** Panel individual con KPIs de rendimiento, evolución partido a partido (`xG` a favor vs. `xG` en contra, goles y posesión), efectividad por esquema táctico, distribución del origen de remates y registro completo de encuentros.
-* **Comparador Multi-Equipo:** Evaluación simultánea de dos o más clubes en métricas de volumen ofensivo, generación de peligro (`xG`, ocasiones claras, toques en área rival), circulación y solidez defensiva.
-* **Buscador de Partidos (Match Center):**
-  * Placa de marcador con detalle de **goleadores** (con minuto exacto de conversión) y **asistidores**.
-  * Comparativa estadística equipo vs. equipo.
-  * Planillas individuales completas de ambos planteles (titulares, suplentes, esquema táctico, calificación SofaScore, `xG`, `xGOT`, `xA`, precisión de pases, regates, acciones defensivas y duelos).
+* **Tablas de rendimiento:** Vista general, de local y de visitante con métricas acumuladas o por partido (`PTS`, `xG`, `xGA`, posesión, ocasiones claras, precisión de pases y duelos).
+* **Explorador bidimensional:** Gráficos de dispersión (`Eje X vs Eje Y`) con líneas de promedio de la liga.
+* **Ficha individual de club:** Evolución partido a partido, esquemas tácticos utilizados, zonas de origen de remates e historial completo de encuentros.
+* **Comparador y Buscador de Partidos:** Cruce directo entre clubes y detalle encuentro por encuentro con planillas completas y resumen copiable para compartir.
 
 ### 2. 🏃 Jugadores y Scouting (`vistas/jugadores.py`)
-* **Tablas y Rankings:** Filtrado por club, posición, umbral mínimo de minutos y bloque temático (*General, Ataque, Creación y Pases, Defensa y Duelos, Arqueros*), con normalización automática a **valores totales** o **cada 90 minutos (`p90`)**.
-* **Ficha de Jugador:** Perfil individual con KPIs específicos según rol en cancha, curva de evolución de calificaciones partido a partido, mapa tabular de definición (destino en el arco y perfil de impacto) e historial de apariciones.
-* **Rendimiento por Partido:** Auditoría granular por encuentro o acumulado del período dividida en tres módulos (*Ataque y Definición*, *Creación y Conducción*, *Defensa y Duelos*) junto con el registro **tiro por tiro** (`xG`, `xGOT`, minuto, situación y desenlace).
-* **Comparador de Jugadores:** Gráficos de **radar de percentiles cada 90'** calibrados por posición frente al universo de jugadores de la liga, acompañados de su tabla de métricas reales.
-* **Líderes por Fecha:** Ranking automático de los mejores rendimientos por posición en cada jornada e instancia eliminatoria.
+* **Rankings y filtros:** Segmentación por club, posición, bloque estadístico y normalización **Cada 90'**.
+* **Ficha de jugador:** Indicadores adaptados al puesto (arqueros, defensores, mediocampistas y delanteros), evolución de calificación y perfil de remates.
+* **Detalle partido a partido:** Registro individual por fecha y desglose tiro por tiro (`xG`, `xGOT`, zona del arco, parte del cuerpo y situación).
+* **Comparador y Líderes por Fecha:** Radar de percentiles por posición y jugadores destacados de cada jornada.
 
-### 3. 🔮 Simulador Predictivo (`modelo_predictivo.py`)
-* **Modelo Estadístico Bivariado:** Estimación de probabilidades de resultado (`1X2`), marcadores exactos y expectativa de goles mediante distribuciones de **Dixon-Coles / Poisson** ponderadas por **rating xG-Elo** dinámico, fuerza ofensiva/defensiva ajustada por rival y factor de localía.
-* **Simulación de Fechas y Escenarios:** Proyección de partidos individuales y simulación Monte Carlo de jornadas completas para evaluar probabilidades de clasificación y cierre de tabla.
+### 3. 🔮 Simulador Predictivo (`vistas/simulador.py` + `modelo_predictivo.py`)
+* **Motor híbrido xG-Elo + Dixon-Coles:** Combina fuerza ofensiva y defensiva basada en goles esperados (`xG`), rating Elo dinámico con ajuste de localía, decaimiento exponencial por forma reciente y corrección de marcadores bajos ($\rho$ estimado por máxima verosimilitud).
+* **Armado y validación del 11 titular:** Permite personalizar la formación de cada equipo con detección automática de esquema y validación de equilibrio táctico por líneas (`1 ARQ`, `3–5 DEF`, `2–6 MED`, `1–4 DEL`), recalculando al instante $\lambda$, probabilidades y figuras.
+* **Contexto y proyecciones:** Soporte para cancha neutral (Playoffs), penalización manual por bajas/rotación, peso configurable de forma reciente, matriz de resultados exactos, proyección individual de gol/asistencia y resumen listo para copiar.
 
 ---
 
-## 🗂️ Arquitectura del Proyecto
+## 🔗 Navegación directa por URL
+
+La aplicación soporta parámetros en la URL para abrir directamente la ficha de un club o un jugador específico:
+
+* **Ficha de club:** `https://enciclolpf.streamlit.app/?club=River%20Plate`
+* **Ficha de jugador:** `https://enciclolpf.streamlit.app/?jugador=Nombre%20Apellido`
+
+---
+
+## 🗂️ Estructura del repositorio
 
 ```text
-enciclo-lpf/
-├── app.py                    # Punto de entrada de la app, navegación y filtros globales
-├── cargador.py               # Capa de carga, filtrado y cacheo (@st.cache_data) de datasets
-├── tema_enciclo.py           # Estilos CSS custom, paleta dark-mode y componentes visuales
-├── escudos_helper.py         # Gestión y renderizado en Base64 de escudos oficiales
-├── modelo_predictivo.py      # Motor matemático (xG-Elo + Dixon-Coles) y simulador de partidos
-├── panorama.py               # Vista general y resumen estadístico de la competición
+cherno559/enciclo_lpf/
+├── app.py                     # Punto de entrada, filtros globales, routing y query params
+├── modelo_predictivo.py       # Motor xG-Elo bivariado, Dixon-Coles y proyección de jugadores
+├── tema_enciclo.py            # Identidad visual, estilos CSS, header y footer
+├── escudos_helper.py          # Mapeo, caché en base64 y renderizado de escudos
+├── scraper.py                 # Extracción de datos de partidos, jugadores y mapa de tiros
+├── bajar_puntuales.py         # Descarga puntual de partidos específicos
+├── preparar_datos.py          # Limpieza, normalización y exportación a formato Parquet
+├── requirements.txt           # Dependencias del proyecto
 ├── vistas/
-│   ├── equipos.py            # Tablas de liga, ficha de club, comparador y match center
-│   └── jugadores.py          # Rankings p90, ficha de jugador, rendimiento por partido y radares
-├── scraper.py                # Pipeline de recolección automatizada de partidos, eventos y tiros
-├── bajar_puntuales.py        # Utilidad para descarga y actualización de encuentros específicos
-├── preparar_datos.py         # Limpieza, normalización de métricas y exportación a Parquet
-├── datos/                    # Datasets procesados (equipos, jugadores y tiros en Parquet)
-├── assets/
-│   └── escudos/              # Escudos oficiales de los clubes de Primera División
-└── requirements.txt          # Dependencias del entorno Python
-```
-
----
-
-## 🛠️ Stack Tecnológico
-
-* **Core & Ingeniería de Datos:** Python, `pandas`, `numpy`, `scipy`, `pyarrow` (Parquet).
-* **Visualización Interactiva:** `plotly` (scatter plots, series temporales, barras agrupadas, radares polares).
-* **Frontend & Despliegue:** `streamlit` (arquitectura modular con carga diferida de vistas y caché en memoria).
-
----
-
-## 🚀 Instalación y Ejecución Local
-
-1. **Clonar el repositorio:**
-   ```bash
-   git clone [https://github.com/cherno559/enciclo-lpf.git](https://github.com/cherno559/enciclo-lpf.git)
-   cd enciclo-lpf
-   ```
-
-2. **Crear y activar un entorno virtual:**
-   ```bash
-   python -m venv venv
-   source venv/bin/activate        # Linux / macOS
-   # venv\Scripts\activate         # Windows
-   ```
-
-3. **Instalar dependencias:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **Ejecutar la aplicación:**
-   ```bash
-   streamlit run app.py
-   ```
-
----
-
-## 📊 Fuentes y Metodología de Datos
-
-* Los datos de eventos, remates (`xG` / `xGOT`), calificaciones y estadísticas individuales provienen de registros partido a partido de la Primera División del Fútbol Argentino.
-* Las métricas normalizadas (`Cada 90'`) se calculan estrictamente sobre minutos reales disputados en cancha para evitar sesgos por ingresos desde el banco de suplentes.
-
----
-
-## 👤 Autor
-
-**Sebastián Chernomoretz**
-* X / Twitter: [@ChernoSebi](https://x.com/ChernoSebi)
-* GitHub: [@cherno559](https://github.com/cherno559)
+│   ├── equipos.py             # Vistas de clubes, comparador e historial de partidos
+│   ├── jugadores.py           # Vistas de scouting, radar y fichas individuales
+│   └── simulador.py           # Interfaz del simulador predictivo y armado de alineaciones
+├── datos/
+│   ├── equipos.parquet        # Métricas agregadas por equipo y partido
+│   ├── jugadores.parquet      # Rendimiento individual por partido
+│   └── tiros.parquet          # Registro espacial y contextual de remates
+└── assets/
+    └── escudos/               # Escudos oficiales de los 30 clubes de la LPF (96x96 px)
