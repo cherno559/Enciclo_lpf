@@ -365,12 +365,12 @@ st.markdown("<div style='margin-top:24px;'></div>", unsafe_allow_html=True)
 with st.expander("ℹ️ Metodología y fuentes de datos"):
     st.markdown(
         """
-        - **Datos:** Registros partido a partido de la Liga Profesional de Fútbol 2026 (Apertura, Clausura y Playoffs), excluyendo definiciones por penales de las métricas de tiempo regular.
+        - **Datos:** Registros partido a partido de la Liga Profesional de Fútbol 2026 (Apertura, Clausura y Playoffs) obtenidos vía SofaScore, excluyendo definiciones por penales de las métricas de tiempo regular.
         - **Motor Predictivo:** Modelo híbrido **xG-Elo bivariado** (local/visitante) combinado con distribución de **Poisson bivariada ajustada por Dixon-Coles** ($\\rho$ estimado por máxima verosimilitud) y decaimiento exponencial por forma reciente.
         - **Proyección Individual:** Tasas cada 90' ponderadas entre xG/xA y producción real, regularizadas mediante regresión bayesiana empírica por posición para estabilizar muestras de pocos minutos.
+        - **Aviso:** Proyecto independiente, gratuito y sin fines de lucro con fines educativos y de divulgación estadística. Sin afiliación oficial con la LPF, la AFA, los clubes ni SofaScore.
         """
     )
-
 if st.session_state.pop("_scroll_top", False):
     components.html(
         """
