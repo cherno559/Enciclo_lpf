@@ -24,6 +24,30 @@ render_header_enciclo()
 BASE_DIR = Path(__file__).resolve().parent
 
 
+def _aplicar_query_params_iniciales():
+    """Permite abrir directamente la ficha de un club o jugador mediante URL (?club=... o ?jugador=...)."""
+    if st.session_state.get("_qp_inicial_aplicado"):
+        return
+    st.session_state["_qp_inicial_aplicado"] = True
+
+    qp = st.query_params
+    club_qp = qp.get("club")
+    jug_qp = qp.get("jugador")
+
+    if club_qp:
+        st.session_state["nav_principal_enciclo"] = "🏟️ Clubes y Estadísticas"
+        st.session_state["eq_subvista_nav"] = "🔎 Ficha de Club"
+        st.session_state["eq_ficha_club_sel"] = str(club_qp)
+    elif jug_qp:
+        st.session_state["nav_principal_enciclo"] = "🏃 Jugadores y Scouting"
+        st.session_state["jug_subvista_nav"] = "🔎 Ficha de Jugador"
+        st.session_state["ficha_jug_eq"] = "Todos"
+        st.session_state["ficha_jug_nombre"] = str(jug_qp)
+
+
+_aplicar_query_params_iniciales()
+
+
 def _preparar_fechas(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df
@@ -333,6 +357,8 @@ if not df_eq.empty:
             periodo_label,
         )
     else:
+        if "club" in st.query_params or "jugador" in st.query_params:
+            st.query_params.clear()
         render_simulador(df_eq_filt, df_jug_filt, periodo=periodo_label)
 
 st.markdown("<div style='margin-top:24px;'></div>", unsafe_allow_html=True)
@@ -349,9 +375,27 @@ if st.session_state.pop("_scroll_top", False):
     components.html(
         """
         <script>
-            const main = window.parent.document.querySelector('section.main');
-            if (main) { main.scrollTo({top: 0, behavior: 'smooth'}); }
-            window.parent.scrollTo({top: 0, behavior: 'smooth'});
+            function forzarScrollArriba() {
+                const doc = window.parent.document;
+                const selectores = [
+                    '[data-testid="stMain"]',
+                    '[data-testid="stAppViewContainer"]',
+                    'section.main',
+                    '.main'
+                ];
+                selectores.forEach(sel => {
+                    const el = doc.querySelector(sel);
+                    if (el) { el.scrollTop = 0; }
+                });
+                doc.documentElement.scrollTop = 0;
+                doc.body.scrollTop = 0;
+                window.parent.scrollTo(0, 0);
+            }
+
+            forzarScrollArriba();
+            setTimeout(forzarScrollArriba, 80);
+            setTimeout(forzarScrollArriba, 200);
+            setTimeout(forzarScrollArriba, 400);
         </script>
         """,
         height=0,
