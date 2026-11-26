@@ -16,7 +16,7 @@ Plataforma web de analítica avanzada, scouting y simulación probabilística pa
 
 ### 2. 🏃 Jugadores y Scouting (`vistas/jugadores.py`)
 * **Rankings y filtros:** Segmentación por club, posición, bloque estadístico y normalización **Cada 90'**.
-* **Ficha de jugador:** Indicadores adaptados al puesto (arqueros, defensores, mediocampistas y delanteros), evolución de calificación y perfil de remates.
+* **Ficha de jugador:** Indicadores adaptados al puesto (arqueros, defensores, mediocampistas y delanteros), evolución de calificación y mapa/perfil de remates.
 * **Detalle partido a partido:** Registro individual por fecha y desglose tiro por tiro (`xG`, `xGOT`, zona del arco, parte del cuerpo y situación).
 * **Comparador y Líderes por Fecha:** Radar de percentiles por posición y jugadores destacados de cada jornada.
 
@@ -44,17 +44,33 @@ cherno559/enciclo_lpf/
 ├── modelo_predictivo.py       # Motor xG-Elo bivariado, Dixon-Coles y proyección de jugadores
 ├── tema_enciclo.py            # Identidad visual, estilos CSS, header y footer
 ├── escudos_helper.py          # Mapeo, caché en base64 y renderizado de escudos
-├── scraper.py                 # Extracción de datos de partidos, jugadores y mapa de tiros
-├── bajar_puntuales.py         # Descarga puntual de partidos específicos
 ├── preparar_datos.py          # Limpieza, normalización y exportación a formato Parquet
 ├── requirements.txt           # Dependencias del proyecto
 ├── vistas/
 │   ├── equipos.py             # Vistas de clubes, comparador e historial de partidos
 │   ├── jugadores.py           # Vistas de scouting, radar y fichas individuales
-│   └── simulador.py           # Interfaz del simulador predictivo y armado de alineaciones
+│   └── simulador.py           # Interfaz del simulador y armado de alineaciones
 ├── datos/
 │   ├── equipos.parquet        # Métricas agregadas por equipo y partido
 │   ├── jugadores.parquet      # Rendimiento individual por partido
 │   └── tiros.parquet          # Registro espacial y contextual de remates
 └── assets/
-    └── escudos/               # Escudos oficiales de los 30 clubes de la LPF (96x96 px)
+    └── escudos/               # Escudos de los clubes de la LPF (96x96 px)
+
+⚙️ Datos, metodología e instalación local
+
+Los registros partido a partido (Apertura, Clausura y Playoffs 2026) provienen de SofaScore, excluyendo definiciones por penales de las métricas de tiempo regular, y se procesan en datasets optimizados en formato Parquet dentro de datos/ para su lectura rápida en la aplicación.
+
+Para ejecutar el proyecto en tu computadora:
+
+    Cloná el repositorio: git clone https://github.com/cherno559/enciclo_lpf.git y entrá a la carpeta enciclo_lpf.
+
+    Creá y activá el entorno virtual: python -m venv .venv y source .venv/bin/activate.
+
+    Instalá las dependencias: pip install -r requirements.txt.
+
+    Iniciá la aplicación: streamlit run app.py.
+
+    Aviso: Enciclo LPF es un proyecto independiente, gratuito y sin fines de lucro con fines educativos y de divulgación estadística. No posee afiliación oficial con la Liga Profesional de Fútbol, la AFA, los clubes participantes ni SofaScore.
+
+Desarrollado por Sebastián Chernomoretz (@ChernoSebi).
