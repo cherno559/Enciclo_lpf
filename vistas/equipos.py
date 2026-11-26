@@ -170,29 +170,42 @@ def _render_plantel_partido(mid, equipo: str, df_jug: pd.DataFrame, tiene_xg: bo
     data = {
         "Rol": rol_txt,
         "Jugador": sub["jugador"],
-        "Min'": sub["minutesPlayed"].fillna(0).round(0).astype(int),
-        "Nota": sub["rating"],
+        "Min": sub["minutesPlayed"].fillna(0).round(0).astype(int),
+        "Nota": pd.to_numeric(sub["rating"], errors="coerce"),
         "G": sub["goals"].fillna(0).round(0).astype(int) if "goals" in sub.columns else 0,
         "A": sub["goalAssist"].fillna(0).round(0).astype(int) if "goalAssist" in sub.columns else 0,
     }
     if tiene_xg and "expectedGoals" in sub.columns:
-        data["xG"] = sub["expectedGoals"].fillna(0.0)
+        data["xG"] = pd.to_numeric(sub["expectedGoals"], errors="coerce").fillna(0.0)
 
     data["Pases"] = [f"{ok}/{tot}" for ok, tot in zip(pases_ok, pases_tot)]
-    data["Quites"] = sub["wonTackle"].fillna(0).round(0).astype(int) if "wonTackle" in sub.columns else 0
-    data["Recup."] = sub["ballRecovery"].fillna(0).round(0).astype(int) if "ballRecovery" in sub.columns else 0
-    data["Ataj."] = sub["saves"].fillna(0).round(0).astype(int) if "saves" in sub.columns else 0
+    data["Qui"] = sub["wonTackle"].fillna(0).round(0).astype(int) if "wonTackle" in sub.columns else 0
+    data["Rec"] = sub["ballRecovery"].fillna(0).round(0).astype(int) if "ballRecovery" in sub.columns else 0
+    data["Atj"] = sub["saves"].fillna(0).round(0).astype(int) if "saves" in sub.columns else 0
 
     df_pl = pd.DataFrame(data)
-    fmt = {"Nota": "{:.2f}"}
+    fmt = {"Nota": lambda x: f"{x:.2f}" if pd.notna(x) else "-"}
     if "xG" in df_pl.columns:
         fmt["xG"] = "{:.2f}"
 
     st.dataframe(
-        df_pl.style.format(fmt, na_rep="-")
+        df_pl.style.format(fmt)
         .set_properties(subset=["Jugador"], **{"font-weight": "bold"})
         .set_properties(subset=["Nota"], **{"color": "#cfb45e", "font-weight": "bold"})
-        .set_properties(subset=["Rol"], **{"color": "#8b8b95", "font-size": "0.8rem"}),
+        .set_properties(subset=["Rol"], **{"color": "#8b8b95", "font-size": "0.78rem"}),
+        column_config={
+            "Rol": st.column_config.TextColumn("Rol", width="small"),
+            "Jugador": st.column_config.TextColumn("Jugador", width="medium"),
+            "Min": st.column_config.NumberColumn("Min'", width="small"),
+            "Nota": st.column_config.TextColumn("Nota", width="small"),
+            "G": st.column_config.NumberColumn("G", width="small"),
+            "A": st.column_config.NumberColumn("A", width="small"),
+            "xG": st.column_config.NumberColumn("xG", width="small"),
+            "Pases": st.column_config.TextColumn("Pases", width="small"),
+            "Qui": st.column_config.NumberColumn("Quites", width="small"),
+            "Rec": st.column_config.NumberColumn("Recup.", width="small"),
+            "Atj": st.column_config.NumberColumn("Ataj.", width="small"),
+        },
         hide_index=True,
         use_container_width=True,
         height=(len(df_pl) * 35) + 42,
@@ -466,7 +479,7 @@ def render_equipos(df_eq: pd.DataFrame, df_jug: pd.DataFrame, df_tiros: pd.DataF
                     res_form["Efec %"] = (res_form["PTS"] / (res_form["PJ"] * 3) * 100).round(1)
                     res_form = res_form.rename(columns={"formacion": "Esquema", "GF_pj": "GF/pj", "GC_pj": "GC/pj", "xG_pj": "xG/pj", "xGA_pj": "xGA/pj"})
                     st.dataframe(
-                        res_form.style.format({"Efec %": "{:.1f}%", "GF/pj": "{:.2f}", "GC/pj": "{:.2f}", "xG/pj": "{:.2f}", "xGA/pj": "{:.2f}"}),
+                        res_form.style.format({"Efec %": "{:.1f}%", "GF/pj": "{:.2f}", "GC/pj": "{:.2f}", "xG/pj": "{:.2f}", "xGA_pj": "{:.2f}"}),
                         hide_index=True, use_container_width=True,
                     )
                 else:
@@ -667,50 +680,45 @@ def render_equipos(df_eq: pd.DataFrame, df_jug: pd.DataFrame, df_tiros: pd.DataF
 
             bloque_inc_l = ""
             if goles_l_txt:
-                bloque_inc_l += f'<div style="font-size:0.8rem; color:#ececf0; margin-top:4px;">⚽ {goles_l_txt}</div>'
+                bloque_inc_l += f'<div style="font-size:0.82rem; color:#ececf0; margin-top:4px;">⚽ {goles_l_txt}</div>'
             if asist_l_txt:
                 bloque_inc_l += f'<div style="font-size:0.75rem; color:#8b8b95; margin-top:2px;">👟 Asist.: {asist_l_txt}</div>'
 
             bloque_inc_v = ""
             if goles_v_txt:
-                bloque_inc_v += f'<div style="font-size:0.8rem; color:#ececf0; margin-top:4px;">⚽ {goles_v_txt}</div>'
+                bloque_inc_v += f'<div style="font-size:0.82rem; color:#ececf0; margin-top:4px;">⚽ {goles_v_txt}</div>'
             if asist_v_txt:
                 bloque_inc_v += f'<div style="font-size:0.75rem; color:#8b8b95; margin-top:2px;">👟 Asist.: {asist_v_txt}</div>'
 
             fila_incidencias = ""
             if bloque_inc_l or bloque_inc_v:
-                fila_incidencias = f"""
-                <div style="display:flex; justify-content:center; align-items:flex-start; gap:24px; margin-top:14px; padding-top:12px; border-top:1px solid #26262d;">
-                    <div style="flex:1; text-align:right;">{bloque_inc_l}</div>
-                    <div style="width:110px;"></div>
-                    <div style="flex:1; text-align:left;">{bloque_inc_v}</div>
-                </div>
-                """
+                fila_incidencias = (
+                    '<div style="display:flex; justify-content:center; align-items:flex-start; gap:24px; margin-top:14px; padding-top:12px; border-top:1px solid #26262d;">'
+                    f'<div style="flex:1; text-align:right;">{bloque_inc_l}</div>'
+                    '<div style="width:110px;"></div>'
+                    f'<div style="flex:1; text-align:left;">{bloque_inc_v}</div>'
+                    '</div>'
+                )
 
             esc_l_partido = img_escudo_html(nom_loc, 52)
             esc_v_partido = img_escudo_html(nom_vis, 52)
 
-            st.markdown(f"""
-            <div style="background:linear-gradient(180deg, #17171c 0%, #121216 100%); border:1px solid #26262d; border-radius:14px; padding:22px; text-align:center; margin:12px 0 20px;">
-                <div style="font-size:0.74rem; font-weight:800; color:#8b8b95; text-transform:uppercase; letter-spacing:2px; margin-bottom:12px;">
-                    {fila_m['torneo']} · {fila_m['Instancia_Txt']} · {fila_m['fecha']}
-                </div>
-                <div style="display:flex; justify-content:center; align-items:center; gap:24px;">
-                    <div style="display:flex; align-items:center; justify-content:flex-end; gap:14px; flex:1;">
-                        <span style="font-family:'Bebas Neue', sans-serif; font-size:2rem; color:#fff;">{nom_loc}</span>
-                        {esc_l_partido}
-                    </div>
-                    <div style="font-family:'Bebas Neue', sans-serif; font-size:3rem; color:#ED1A3B; background:#0a0a0c; border:1px solid #26262d; padding:4px 22px; border-radius:10px;">
-                        {int(row_l['goles_favor'])} - {int(row_v['goles_favor'])}
-                    </div>
-                    <div style="display:flex; align-items:center; justify-content:flex-start; gap:14px; flex:1;">
-                        {esc_v_partido}
-                        <span style="font-family:'Bebas Neue', sans-serif; font-size:2rem; color:#fff;">{nom_vis}</span>
-                    </div>
-                </div>
-                {fila_incidencias}
-            </div>
-            """, unsafe_allow_html=True)
+            html_placa = (
+                '<div style="background:linear-gradient(180deg, #17171c 0%, #121216 100%); border:1px solid #26262d; border-radius:14px; padding:22px; text-align:center; margin:12px 0 20px;">'
+                f'<div style="font-size:0.74rem; font-weight:800; color:#8b8b95; text-transform:uppercase; letter-spacing:2px; margin-bottom:12px;">{fila_m["torneo"]} · {fila_m["Instancia_Txt"]} · {fila_m["fecha"]}</div>'
+                '<div style="display:flex; justify-content:center; align-items:center; gap:24px;">'
+                '<div style="display:flex; align-items:center; justify-content:flex-end; gap:14px; flex:1;">'
+                f'<span style="font-family:\'Bebas Neue\', sans-serif; font-size:2rem; color:#fff;">{nom_loc}</span>{esc_l_partido}'
+                '</div>'
+                f'<div style="font-family:\'Bebas Neue\', sans-serif; font-size:3rem; color:#ED1A3B; background:#0a0a0c; border:1px solid #26262d; padding:4px 22px; border-radius:10px;">{int(row_l["goles_favor"])} - {int(row_v["goles_favor"])}</div>'
+                '<div style="display:flex; align-items:center; justify-content:flex-start; gap:14px; flex:1;">'
+                f'{esc_v_partido}<span style="font-family:\'Bebas Neue\', sans-serif; font-size:2rem; color:#fff;">{nom_vis}</span>'
+                '</div>'
+                '</div>'
+                f'{fila_incidencias}'
+                '</div>'
+            )
+            st.markdown(html_placa, unsafe_allow_html=True)
 
             stats_partido = [
                 ("Posesión de balón", "ball_possession", "{:.1f}%"),
