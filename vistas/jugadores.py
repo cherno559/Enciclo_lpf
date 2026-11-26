@@ -88,6 +88,7 @@ def _ir_a_ficha_jugador(nombre_jugador: str):
     st.session_state["ficha_jug_eq"] = "Todos"
     st.session_state["ficha_jug_nombre"] = nombre_jugador
     st.session_state["jug_subvista_nav"] = "🔎 Ficha de Jugador"
+    st.session_state["_scroll_top"] = True
 
 
 def _ir_a_rendimiento_partido(equipo_jugador: str, nombre_jugador: str, etiqueta_partido: str):
@@ -95,6 +96,7 @@ def _ir_a_rendimiento_partido(equipo_jugador: str, nombre_jugador: str, etiqueta
     st.session_state["rend_part_jug"] = nombre_jugador
     st.session_state["rend_part_match"] = etiqueta_partido
     st.session_state["jug_subvista_nav"] = "🎯 Rendimiento por Partido"
+    st.session_state["_scroll_top"] = True
 
 
 def _barra_acceso_ficha(jugadores_disponibles: list[str], key_prefix: str):

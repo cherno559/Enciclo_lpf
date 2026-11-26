@@ -54,12 +54,14 @@ def _estilizar_ejes(fig, grid_x=False, grid_y=True):
 def _ir_a_ficha_club(club_nombre: str):
     st.session_state["eq_ficha_club_sel"] = club_nombre
     st.session_state["eq_subvista_nav"] = "🔎 Ficha de Club"
+    st.session_state["_scroll_top"] = True
 
 
 def _ir_a_buscador_partido(label_partido: str):
     st.session_state["busc_eq"] = "Todos los equipos"
     st.session_state["busc_partido"] = label_partido
     st.session_state["eq_subvista_nav"] = "🔍 Buscador de Partidos"
+    st.session_state["_scroll_top"] = True
 
 
 def _ir_a_ficha_jugador_desde_club(nombre_jugador: str):
@@ -67,6 +69,7 @@ def _ir_a_ficha_jugador_desde_club(nombre_jugador: str):
     st.session_state["ficha_jug_nombre"] = nombre_jugador
     st.session_state["jug_subvista_nav"] = "🔎 Ficha de Jugador"
     st.session_state["nav_principal_enciclo"] = "🏃 Jugadores y Scouting"
+    st.session_state["_scroll_top"] = True
 
 
 @st.cache_data(show_spinner=False)

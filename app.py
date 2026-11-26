@@ -2,6 +2,7 @@ import inspect
 from pathlib import Path
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 from tema_enciclo import (
     aplicar_estilo_enciclo,
@@ -342,6 +343,18 @@ with st.expander("ℹ️ Metodología y fuentes de datos"):
         - **Motor Predictivo:** Modelo híbrido **xG-Elo bivariado** (local/visitante) combinado con distribución de **Poisson bivariada ajustada por Dixon-Coles** ($\\rho$ estimado por máxima verosimilitud) y decaimiento exponencial por forma reciente.
         - **Proyección Individual:** Tasas cada 90' ponderadas entre xG/xA y producción real, regularizadas mediante regresión bayesiana empírica por posición para estabilizar muestras de pocos minutos.
         """
+    )
+
+if st.session_state.pop("_scroll_top", False):
+    components.html(
+        """
+        <script>
+            const main = window.parent.document.querySelector('section.main');
+            if (main) { main.scrollTo({top: 0, behavior: 'smooth'}); }
+            window.parent.scrollTo({top: 0, behavior: 'smooth'});
+        </script>
+        """,
+        height=0,
     )
 
 render_footer_enciclo()
