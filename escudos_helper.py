@@ -1,10 +1,17 @@
 import base64
+import io
 import os
 import re
 import unicodedata
 from pathlib import Path
 import pandas as pd
 import streamlit as st
+
+try:
+    from PIL import Image
+    _TIENE_PIL = True
+except ImportError:
+    _TIENE_PIL = False
 
 CARPETA_ESCUDOS = Path(__file__).resolve().parent / "assets" / "escudos"
 
@@ -89,6 +96,7 @@ def _normalizar(texto: str) -> str:
     return s
 
 
+@st.cache_data(show_spinner=False)
 def obtener_ruta_escudo(equipo: str) -> str | None:
     if not equipo or not CARPETA_ESCUDOS.exists():
         return None
@@ -115,17 +123,33 @@ def obtener_ruta_escudo(equipo: str) -> str | None:
 
 
 @st.cache_data(show_spinner=False)
-def escudo_base64(equipo: str) -> str | None:
+def escudo_base64(equipo: str, max_px: int = 56) -> str | None:
     ruta = obtener_ruta_escudo(equipo)
     if not ruta or not os.path.exists(ruta):
         return None
-    with open(ruta, "rb") as f:
-        b64 = base64.b64encode(f.read()).decode("ascii")
+
+    if _TIENE_PIL:
+        try:
+            with Image.open(ruta) as img:
+                img = img.convert("RGBA")
+                img.thumbnail((max_px, max_px), Image.Resampling.LANCZOS)
+                buf = io.BytesIO()
+                img.save(buf, format="PNG", optimize=True)
+                raw = buf.getvalue()
+        except Exception:
+            with open(ruta, "rb") as f:
+                raw = f.read()
+    else:
+        with open(ruta, "rb") as f:
+            raw = f.read()
+
+    b64 = base64.b64encode(raw).decode("ascii")
     return f"data:image/png;base64,{b64}"
 
 
 def img_escudo_html(equipo: str, size: int = 44, extra_style: str = "") -> str:
-    src = escudo_base64(equipo)
+    px_req = 96 if size > 56 else 56
+    src = escudo_base64(equipo, max_px=px_req)
     if not src:
         return ""
     return (
