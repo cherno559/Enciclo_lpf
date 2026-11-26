@@ -5,3 +5,6 @@ easysoccerdata/
 .DS_Store
 __pycache__/
 datos/*.xlsx
+
+scraper.py
+bajar_puntuales.py
