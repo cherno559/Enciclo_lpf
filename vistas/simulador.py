@@ -453,6 +453,17 @@ def render_simulador(df_eq: pd.DataFrame, df_jug: pd.DataFrame, periodo: str = "
         titulares_vis=titulares_vis,
     )
 
+    if not df_proy_jug.empty:
+        convocados = set()
+        if titulares_loc:
+            convocados.update((eq_local, j) for j in titulares_loc)
+        if titulares_vis:
+            convocados.update((eq_vis, j) for j in titulares_vis)
+
+        if convocados:
+            mascara = df_proy_jug.apply(lambda r: (r["Equipo"], r["Jugador"]) in convocados, axis=1)
+            df_proy_jug = df_proy_jug[mascara].copy()
+
     with st.expander("📲 Copiar pronóstico de la simulación para WhatsApp / X"):
         st.code(
             _generar_resumen_simulacion(eq_local, eq_vis, sim, df_proy_jug, neutral=neutral),
