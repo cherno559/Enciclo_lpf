@@ -9,34 +9,60 @@ ESCUDOS_DIR = BASE_DIR / "assets" / "escudos"
 
 MAPA_ESCUDOS = {
     "aldosivi": "aldosivi.png",
+    "club atletico aldosivi": "aldosivi.png",
     "argentinos juniors": "argentinos.png",
     "atletico tucuman": "atleticotucuman.png",
+    "club atletico tucuman": "atleticotucuman.png",
     "banfield": "banfield.png",
+    "club atletico banfield": "banfield.png",
     "barracas central": "barracas.png",
     "belgrano": "belgrano.png",
+    "club atletico belgrano": "belgrano.png",
+    "belgrano de cordoba": "belgrano.png",
     "boca juniors": "boca.png",
     "central cordoba": "centralcordoba.png",
+    "central cordoba se": "centralcordoba.png",
+    "central cordoba (sde)": "centralcordoba.png",
     "defensa y justicia": "defensa.png",
     "deportivo riestra": "riestra.png",
     "estudiantes de la plata": "estudiantes.png",
+    "estudiantes": "estudiantes.png",
     "estudiantes de rio cuarto": "estudiantesrc.png",
     "gimnasia y esgrima": "gimnasia.png",
+    "gimnasia y esgrima la plata": "gimnasia.png",
     "gimnasia y esgrima mendoza": "gimnasiamendoza.png",
+    "gimnasia de mendoza": "gimnasiamendoza.png",
     "huracan": "huracan.png",
+    "club atletico huracan": "huracan.png",
     "independiente": "independiente.png",
+    "ca independiente": "independiente.png",
     "independiente rivadavia": "independienteriv.png",
     "instituto": "instituto.png",
+    "instituto de cordoba": "instituto.png",
+    "instituto acc": "instituto.png",
     "lanus": "lanus.png",
+    "ca lanus": "lanus.png",
+    "club atletico lanus": "lanus.png",
     "newells old boys": "newells.png",
     "platense": "platense.png",
+    "club atletico platense": "platense.png",
     "racing club": "racing.png",
     "river plate": "river.png",
     "rosario central": "rosariocentral.png",
     "san lorenzo": "sanlorenzo.png",
+    "san lorenzo de almagro": "sanlorenzo.png",
     "sarmiento": "sarmiento.png",
+    "ca sarmiento": "sarmiento.png",
+    "sarmiento de junin": "sarmiento.png",
     "talleres": "talleres.png",
+    "ca talleres": "talleres.png",
+    "talleres de cordoba": "talleres.png",
     "tigre": "tigre.png",
+    "club atletico tigre": "tigre.png",
     "union": "union.png",
+    "union de santa fe": "union.png",
+    "club atletico union": "union.png",
+    "club atletico union de santa fe": "union.png",
     "velez sarsfield": "velez.png",
 }
 
@@ -53,6 +79,12 @@ def _normalizar_equipo(nombre: str) -> str:
 def ruta_escudo(equipo: str) -> Path | None:
     clave = _normalizar_equipo(equipo)
     archivo = MAPA_ESCUDOS.get(clave)
+    if not archivo:
+        for pref in ("club atletico ", "ca ", "csyd "):
+            if clave.startswith(pref):
+                archivo = MAPA_ESCUDOS.get(clave[len(pref):])
+                if archivo:
+                    break
     if not archivo:
         return None
     ruta = ESCUDOS_DIR / archivo
